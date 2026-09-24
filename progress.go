@@ -166,7 +166,12 @@ func cmdNext(p *Project, out io.Writer) error {
 		return err
 	}
 	if pr.Current != "" {
-		fmt.Fprintf(out, "In progress: %s\n", p.describeStep(p.Spec.stepIndex(pr.Current)))
+		i := p.Spec.stepIndex(pr.Current)
+		if st := p.Spec.Steps[i]; st.Detail == nil {
+			fmt.Fprintf(out, "Step %s · %s is in progress, but it isn't expanded. Run `tattva expand` first.\n", num(i), st.Title)
+			return nil
+		}
+		fmt.Fprintf(out, "In progress: %s\n", p.describeStep(i))
 		return nil
 	}
 	for i, st := range p.Spec.Steps {

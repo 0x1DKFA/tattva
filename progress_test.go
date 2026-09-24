@@ -162,3 +162,18 @@ func TestStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestNextOnAStepInProgressThatLostItsDetails(t *testing.T) {
+	p := newTestProject(t)
+	if err := cmdNext(p, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	p.Spec.Steps[0].Detail = nil // what revise --force does to every step
+	var out bytes.Buffer
+	if err := cmdNext(p, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "isn't expanded") || strings.Contains(out.String(), "→") {
+		t.Fatalf("next must not point at a step file that no longer exists: %s", out.String())
+	}
+}
