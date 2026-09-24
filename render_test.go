@@ -22,7 +22,7 @@ func TestRenderStep(t *testing.T) {
 		"<details><summary>Machine checks (run by the verifier)</summary>",
 		"**accepts a connection**: send `\"PING\\r\\n\"`",
 		"<details><summary>Hint 1 (nudge)</summary>",
-		"<details><summary>Hint 3 (pseudocode)</summary>",
+		"<details><summary>Hint 3 (pseudocode)</summary>\n\n```text\nlisten on 6379; loop: accept a connection\n```\n\n</details>",
 		"</details>\n\n## Common mistakes",
 		"## Unlocks\n\n- 02 · Respond to PING",
 	} {
@@ -66,6 +66,9 @@ func TestDescribeCheck(t *testing.T) {
 		{Check{Name: "pong", Do: "tcp", Input: "PING\r\n", Expect: "+PONG\r\n", Match: "exact"}, "**pong**: send `\"PING\\r\\n\"`, expect reply `\"+PONG\\r\\n\"` (exact)"},
 		{Check{Name: "fixture", Do: "write", Path: "a.txt", Input: "hi", Match: "exact"}, "**fixture**: write `\"hi\"` to `a.txt`"},
 		{Check{Name: "head", Do: "file", Path: ".git/HEAD", Expect: "ref: refs/heads/main\n", Match: "exact"}, "**head**: `.git/HEAD` exists with content `\"ref: refs/heads/main\\n\"` (exact)"},
+		{Check{Name: "commit", Do: "exec", Args: []string{"commit", "-m", "it's done"}, Match: "exact"}, "**commit**: run `./run.sh commit -m 'it'\\''s done'`, expect exit code 0"},
+		{Check{Name: "hash", Do: "exec", Args: []string{"hash-object", "a.txt"}, Expect: `^[0-9a-f]{40}\n$`, Match: "regex"}, "**hash**: run `./run.sh hash-object a.txt`, expect exit code 0 and stdout `^[0-9a-f]{40}\\n$` (regex)"},
+		{Check{Name: "big", Do: "write", Path: "big.txt", Input: strings.Repeat("a", 500), Match: "exact"}, "**big**: write `\"" + strings.Repeat("a", 120) + "\"`… (500 bytes) to `big.txt`"},
 	} {
 		if got := describeCheck(tc.c); got != tc.want {
 			t.Errorf("describeCheck(%s) = %q, want %q", tc.c.Name, got, tc.want)
@@ -92,5 +95,14 @@ func TestRenderGolden(t *testing.T) {
 		if !bytes.Equal(got, want) {
 			t.Errorf("%s differs from its golden file; rerun with -update if the change is intended\n%s", name, got)
 		}
+	}
+}
+
+func TestRenderFencesPseudocodeOnce(t *testing.T) {
+	s := testSpec()
+	s.Steps[0].Detail.Hints[2] = "```go\nfor {}\n```"
+	got := string(renderStep(s, 0))
+	if strings.Contains(got, "```text") || !strings.Contains(got, "```go\nfor {}\n```") {
+		t.Fatalf("an already fenced hint must be left alone:\n%s", got)
 	}
 }

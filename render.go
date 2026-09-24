@@ -74,6 +74,9 @@ func renderStep(s *Spec, i int) []byte {
 		v.Checks = append(v.Checks, describeCheck(c))
 	}
 	for hi, h := range st.Detail.Hints {
+		if hi == 2 && !strings.Contains(h, "```") {
+			h = "```text\n" + strings.TrimSpace(h) + "\n```" // unfenced pseudocode renders as one run-on paragraph
+		}
 		v.Hints = append(v.Hints, hintView{Label: hintLabel(hi), Text: h})
 	}
 	for j, other := range s.Steps {
@@ -132,26 +135,55 @@ func describeCheck(c Check) string {
 	fmt.Fprintf(&b, "**%s**: ", c.Name)
 	switch c.Do {
 	case "exec":
-		fmt.Fprintf(&b, "run `%s`", strings.TrimSpace("./run.sh "+strings.Join(c.Args, " ")))
+		cmd := "./run.sh"
+		for _, a := range c.Args {
+			cmd += " " + shellQuote(a)
+		}
+		fmt.Fprintf(&b, "run `%s`", cmd)
 		if c.Input != "" {
-			fmt.Fprintf(&b, " with stdin `%q`", c.Input)
+			fmt.Fprintf(&b, " with stdin %s", payload(c.Input))
 		}
 		fmt.Fprintf(&b, ", expect exit code %d", c.ExitCode)
 		if c.Expect != "" {
-			fmt.Fprintf(&b, " and stdout `%q` (%s)", c.Expect, c.Match)
+			fmt.Fprintf(&b, " and stdout %s", expectation(c))
 		}
 	case "tcp":
-		fmt.Fprintf(&b, "send `%q`", c.Input)
+		fmt.Fprintf(&b, "send %s", payload(c.Input))
 		if c.Expect != "" {
-			fmt.Fprintf(&b, ", expect reply `%q` (%s)", c.Expect, c.Match)
+			fmt.Fprintf(&b, ", expect reply %s", expectation(c))
 		}
 	case "write":
-		fmt.Fprintf(&b, "write `%q` to `%s`", c.Input, c.Path)
+		fmt.Fprintf(&b, "write %s to `%s`", payload(c.Input), c.Path)
 	case "file":
 		fmt.Fprintf(&b, "`%s` exists", c.Path)
 		if c.Expect != "" {
-			fmt.Fprintf(&b, " with content `%q` (%s)", c.Expect, c.Match)
+			fmt.Fprintf(&b, " with content %s", expectation(c))
 		}
 	}
 	return b.String()
+}
+
+// payload shows check text with its escapes visible, cut short when long.
+func payload(s string) string {
+	const max = 120
+	if len(s) <= max {
+		return fmt.Sprintf("`%q`", s)
+	}
+	return fmt.Sprintf("`%q`… (%d bytes)", strings.ToValidUTF8(s[:max], ""), len(s))
+}
+
+// expectation shows what a check expects: quoted text, or a regex as written.
+func expectation(c Check) string {
+	if c.Match == "regex" {
+		return fmt.Sprintf("`%s` (regex)", c.Expect)
+	}
+	return payload(c.Expect) + " (" + c.Match + ")"
+}
+
+// shellQuote quotes s for a POSIX shell unless it only has safe characters.
+func shellQuote(s string) string {
+	if s != "" && strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_@%+=:,./-") == "" {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

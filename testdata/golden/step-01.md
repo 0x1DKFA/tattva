@@ -51,7 +51,9 @@ Listen on TCP port 6379.
 
 <details><summary>Hint 3 (pseudocode)</summary>
 
+```text
 listen on 6379; loop: accept a connection
+```
 
 </details>
 
