@@ -48,6 +48,33 @@ func run(ctx context.Context, dir string, args []string, out io.Writer) error {
 	case "help", "-h", "--help":
 		fmt.Fprint(out, usage)
 		return nil
+	case "next", "status":
+		pos, err := parseArgs(newFlags(cmd), args)
+		if err != nil {
+			return err
+		}
+		if len(pos) != 0 {
+			return fmt.Errorf("usage: tattva %s", cmd)
+		}
+		return withProject(dir, out, func(p *Project) error {
+			if cmd == "next" {
+				return cmdNext(p, out)
+			}
+			return cmdStatus(p, out)
+		})
+	case "done":
+		pos, err := parseArgs(newFlags(cmd), args)
+		if err != nil {
+			return err
+		}
+		if len(pos) > 1 {
+			return errors.New("usage: tattva done [step]")
+		}
+		step := ""
+		if len(pos) == 1 {
+			step = pos[0]
+		}
+		return withProject(dir, out, func(p *Project) error { return cmdDone(p, step, out) })
 	default:
 		return fmt.Errorf("unknown command %q (run `tattva help`)", cmd)
 	}
@@ -76,4 +103,19 @@ func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 		}
 		pos, args = append(pos, args[0]), args[1:]
 	}
+}
+
+// withProject opens the project around dir, brings its generated files in
+// line with the spec, runs fn, and prints any notices. Commands that change
+// the spec render again themselves.
+func withProject(dir string, out io.Writer, fn func(*Project) error) error {
+	p, err := openProject(dir)
+	if err != nil {
+		return err
+	}
+	defer p.printNotices(out)
+	if err := p.render(); err != nil {
+		return err
+	}
+	return fn(p)
 }
