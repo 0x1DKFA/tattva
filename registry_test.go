@@ -261,3 +261,19 @@ func TestListWithNoProjects(t *testing.T) {
 		t.Fatalf("out=%s err=%v", out.String(), err)
 	}
 }
+
+func TestListSurvivesASpecThatBreaksTheRules(t *testing.T) {
+	p := newTestProject(t)
+	s := testSpec()
+	s.Steps = nil // a hand edit: valid JSON, but no steps
+	if err := os.WriteFile(p.abs(specFile), encodeSpec(s), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := cmdList(&out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Mini Redis  (its spec breaks the curriculum rules") {
+		t.Fatalf("out = %s", out.String())
+	}
+}

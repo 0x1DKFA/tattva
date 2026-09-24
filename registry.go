@@ -350,6 +350,10 @@ func cmdList(out io.Writer) error {
 			fmt.Fprintf(out, "%s  (can't read its spec: %v)\n", e.Name, err)
 			continue
 		}
+		if errs, _ := Validate(s); len(errs) > 0 {
+			fmt.Fprintf(out, "%s  (its spec breaks the curriculum rules; run `tattva status` in %s for details)\n", e.Name, e.Path)
+			continue
+		}
 		events, _, err := readEvents(filepath.Join(e.Path, filepath.FromSlash(progressFile)))
 		if err != nil {
 			return err
