@@ -21,12 +21,14 @@ The learner's program always starts through an executable `run.sh` at the root o
 
 Every step is checked from outside, through `run.sh`: by connecting to the port and exchanging bytes, or by running `run.sh` with arguments and reading its output and the files it writes. So every step must add behaviour that can be observed that way. An internal refactor that changes no observable behaviour is not a step.
 
+Know what checks can and can't do. Each step's checks run in a fresh, empty scratch directory. A server is started once per step, with no arguments, and is never restarted during the step; checks connect one at a time, each with a new connection. A CLI is run once per check, with arguments and optional stdin. Checks can write text files and read the files the program writes. They can't write binary files, set environment variables, wait, restart the program, hold two connections at once, or run any tool other than `run.sh`. Plan the steps so their behaviour is observable within these limits. For example, if the learner's program must read a binary format, have it write that format itself in an earlier step; if persistence matters, let `run.sh` enable it so a check can read the file it writes. Behaviour that can't be observed this way (concurrent clients, restarts, timing) is checked by hand, so keep such steps few.
+
 # Steps
 
 - Step 1 always has the learner create `run.sh` and a minimal program for it to run: a server that accepts a TCP connection on the port, or a CLI that runs and exits cleanly.
-- One conceptual leap per step: roughly 30 to 90 minutes of work for a competent programmer who is new to this system's internals.
-- A step introduces at most 2 concepts that no earlier step used. If a step needs more, split it.
-- List steps in build order. `prerequisites` holds the ids of the earlier steps a step builds on; a prerequisite must appear earlier in the list.
+- One conceptual leap per step: roughly 30 to 90 minutes of work for a competent programmer who is new to this system's internals. A step that introduces both a new format and a new algorithm is two steps.
+- A step introduces at most 2 concepts that no earlier step used. If a step needs more, split it. Every step lists at least one concept: if a step adds no new idea, list the concept it practises.
+- List steps in build order. `prerequisites` holds only the earlier steps whose behaviour this step directly builds on, not simply the step before it; independent features shouldn't depend on each other. A prerequisite must appear earlier in the list.
 - Group steps into phases, each with an id, a title and its purpose. A phase's steps sit next to each other, and phases appear in the order you declare them.
 - `goal` is one sentence describing the observable result of the step.
 
