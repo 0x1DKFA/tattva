@@ -110,6 +110,15 @@ func run(ctx context.Context, dir string, args []string, out io.Writer) error {
 			return errors.New("usage: tattva expand [--model <m>]")
 		}
 		return withProject(dir, out, func(p *Project) error { return cmdExpand(ctx, p, *model, out) })
+	case "list":
+		pos, err := parseArgs(newFlags(cmd), args)
+		if err != nil {
+			return err
+		}
+		if len(pos) != 0 {
+			return errors.New("usage: tattva list")
+		}
+		return cmdList(out)
 	default:
 		return fmt.Errorf("unknown command %q (run `tattva help`)", cmd)
 	}

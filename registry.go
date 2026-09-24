@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // Registry is ~/.tattva/projects.json: where each project lives, and the
@@ -325,4 +326,60 @@ func (p *Project) printNotices(out io.Writer) {
 	for _, n := range p.notices {
 		fmt.Fprintln(out, "note:", n)
 	}
+}
+
+// cmdList prints every registered project with its progress.
+func cmdList(out io.Writer) error {
+	reg, warn := loadRegistry()
+	if warn != "" {
+		fmt.Fprintln(out, "note:", warn)
+	}
+	if len(reg.Projects) == 0 {
+		fmt.Fprintln(out, "No projects yet. Start one with `tattva new \"<target>\" --lang <lang>`.")
+		return nil
+	}
+	projects := slices.Clone(reg.Projects)
+	slices.SortFunc(projects, func(a, b Entry) int { return strings.Compare(a.Name, b.Name) })
+	for _, e := range projects {
+		s, err := loadSpec(filepath.Join(e.Path, filepath.FromSlash(specFile)))
+		if errors.Is(err, fs.ErrNotExist) {
+			fmt.Fprintf(out, "%s  (missing: %s)\n", e.Name, e.Path)
+			continue
+		}
+		if err != nil {
+			fmt.Fprintf(out, "%s  (can't read its spec: %v)\n", e.Name, err)
+			continue
+		}
+		events, _, err := readEvents(filepath.Join(e.Path, filepath.FromSlash(progressFile)))
+		if err != nil {
+			return err
+		}
+		pr := progressOf(s, events)
+		current := "no step in progress"
+		if i := s.stepIndex(pr.Current); i >= 0 {
+			current = "→ " + num(i) + " " + s.Steps[i].Title
+		} else if pr.Done == len(s.Steps) {
+			current = "all done"
+		}
+		fmt.Fprintf(out, "%s  %d%%  %s  last activity %s  %s\n",
+			s.Project.Name, pr.Done*100/len(s.Steps), current, lastActivity(e.Path, events), e.Path)
+	}
+	return nil
+}
+
+// lastActivity is the time of the last progress event, or of the spec's last
+// change if there are no events.
+func lastActivity(root string, events []Event) string {
+	var t time.Time
+	for _, ev := range events {
+		if ev.At.After(t) {
+			t = ev.At
+		}
+	}
+	if t.IsZero() {
+		if fi, err := os.Stat(filepath.Join(root, filepath.FromSlash(specFile))); err == nil {
+			t = fi.ModTime()
+		}
+	}
+	return t.Local().Format("2006-01-02 15:04")
 }

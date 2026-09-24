@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -226,5 +228,36 @@ func TestRemoveSteps(t *testing.T) {
 		if strings.HasPrefix(rel, stepsDir) {
 			t.Fatalf("stale hash for %s", rel)
 		}
+	}
+}
+
+func TestList(t *testing.T) {
+	p := newTestProject(t)
+	if err := cmdNext(p, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	gone := filepath.Join(t.TempDir(), "gone")
+	if err := saveEntry(Entry{ID: "x", Path: gone, Name: "Gone Project", Files: map[string]string{}}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := cmdList(&out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Gone Project  (missing: " + gone + ")", "Mini Redis  0%  → 01 Create run.sh  last activity "} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("list missing %q:\n%s", want, out.String())
+		}
+	}
+	if strings.Index(out.String(), "Gone Project") > strings.Index(out.String(), "Mini Redis") {
+		t.Error("projects should be sorted by name")
+	}
+}
+
+func TestListWithNoProjects(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var out bytes.Buffer
+	if err := cmdList(&out); err != nil || !strings.Contains(out.String(), "No projects yet") {
+		t.Fatalf("out=%s err=%v", out.String(), err)
 	}
 }
