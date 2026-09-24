@@ -191,7 +191,7 @@ Errors in the outline:
 
 Errors in expanded steps:
 10. `why`, `context`, `task`, `by_hand`, `expected_outcome` and `reflection` are not empty. There are exactly 3 non-empty hints and at least one common mistake.
-11. Checks make sense for their type: `exec` only for CLI programs; `tcp` only for servers, and only with non-empty `input`; `write` and `file` need a relative `path` with no `..` segment; unused fields are empty; `regex` patterns compile.
+11. Checks make sense for their type: `exec` only for CLI programs; `tcp` only for servers, and only with non-empty `input`; `write` and `file` need a relative `path` with no `..` segment; unused fields are empty; `regex` patterns compile; `input` and `expect` are plain text, with no control characters other than tab, newline and carriage return (a hand-written binary fixture goes back to Claude for repair).
 12. An expand call returns exactly the step ids it was asked to fill.
 
 Warnings:
@@ -212,7 +212,7 @@ expand  → one call per phase with unexpanded steps, 3 at a time → validate e
 | design | target, language | WebSearch, WebFetch | outline |
 | revise | target, language, current outline, feedback | WebSearch, WebFetch | outline |
 | expand | language, full outline, phase id, the step ids to fill | WebSearch, WebFetch | an object with `steps`, each entry being `{id, detail}` |
-| repair | the output that failed, the rule errors | none | same as the call that failed |
+| repair | the original request, the output that failed, the rule errors | none | same as the call that failed |
 
 If a call's output still breaks the rules after its one repair, the output and its errors are saved to `curriculum/.failed/<call>-<timestamp>.json` and the command stops. For `expand`, only that phase fails.
 
@@ -234,7 +234,7 @@ claude -p
 
 - The prompt goes to stdin. The process runs in a fresh temporary directory, so Claude can't see or change the user's files.
 - `--safe-mode` skips the user's CLAUDE.md, hooks, plugins and MCP servers. Otherwise they would get mixed into generation; this machine has global SessionStart hooks. `--no-session-persistence` keeps generation runs out of the user's session history.
-- Each call has a 20-minute timeout. Ctrl-C cancels every running call.
+- Each call has a 20-minute timeout. Ctrl-C, or `kill` (SIGTERM), cancels every running call and reports it as interrupted; a second signal exits at once.
 - If `claude` exits with a non-zero status or returns an error result, tattva shows Claude's message. Tattva doesn't retry, because Claude Code already retries API errors.
 - The result's `total_cost_usd` is printed for each call and totalled for each command.
 
@@ -305,7 +305,7 @@ The project folder holds what belongs to the user: the curriculum and their prog
 }
 ```
 
-- **Registration:** `new` registers the project. Every command run inside a project (all except `list`) updates its entry by id, so a moved folder is picked up automatically. An existing entry with the same path but a different id is replaced. Each registry write re-reads the file and changes only the current project's entry.
+- **Registration:** `new` registers the project. Every command run inside a project (all except `list`) updates its entry by id, so a moved folder is picked up automatically. An existing entry with the same path but a different id is replaced. Each registry write takes a lock on `~/.tattva/projects.lock`, re-reads the file and changes only the current project's entry, so runs in different projects at the same time keep every entry.
 - **Hashes:** after every write to `spec.json`, `progress.jsonl`, `README.md` or a step file, tattva stores that file's SHA-256 hash.
 - **Checking:** every command run inside a project compares the current files with the stored hashes:
   - **`spec.json` changed:** it is validated. If it breaks a rule, the command stops and shows the errors. If it's valid, tattva accepts it as the user's edit, reports it once and updates the hash.
@@ -331,8 +331,8 @@ Files are generated with `text/template`, with the templates built into the bina
   - Context
   - Your task
   - Constraints
-  - Check it: the by-hand instructions, then the machine checks in a folded `<details>` block
-  - Hints: three separate folded `<details>` blocks
+  - Check it: the by-hand instructions, then the machine checks in a folded `<details>` block (command arguments shell-quoted, payloads over 120 bytes shortened, regexes shown as written)
+  - Hints: three separate folded `<details>` blocks; the pseudocode hint goes in a text code block when it isn't fenced already
   - Common mistakes
   - Reflect
   - Unlocks: worked out from the other steps' prerequisites
