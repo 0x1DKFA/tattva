@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -60,10 +61,15 @@ func loadRegistry() (*Registry, string) {
 	return r, ""
 }
 
-// saveEntry writes e into the registry. It re-reads the registry first so
-// tattva runs in other projects keep their entries, and drops any other entry
-// with e's id or path.
+// saveEntry writes e into the registry. Under the registry lock it re-reads
+// the registry, so tattva runs in other projects keep their entries, and drops
+// any other entry with e's id or path.
 func saveEntry(e Entry) error {
+	unlock, err := lockRegistry()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	r, _ := loadRegistry()
 	kept := r.Projects[:0]
 	for _, old := range r.Projects {
@@ -81,6 +87,28 @@ func saveEntry(e Entry) error {
 		return err
 	}
 	return writeFileAtomic(path, append(data, '\n'))
+}
+
+// lockRegistry takes an exclusive lock on ~/.tattva/projects.lock, so
+// concurrent tattva runs update the registry one at a time. The returned
+// function releases it.
+func lockRegistry() (func(), error) {
+	path, err := registryPath()
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(strings.TrimSuffix(path, ".json")+".lock", os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
+	}
+	return func() { f.Close() }, nil // closing the file releases the lock
 }
 
 // writeFileAtomic writes data to path through a temp file and a rename, so a
@@ -115,7 +143,7 @@ func hashOf(data []byte) string {
 
 // Project is an open tattva project: its root folder, its spec and its
 // registry entry.
-// ponytail: no lock across processes, so two commands on one project at once means the last write wins.
+// ponytail: only registry writes are locked; two commands on one project at once can still overwrite each other's spec.json (last write wins).
 type Project struct {
 	Root    string
 	Spec    *Spec

@@ -3,11 +3,13 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -275,5 +277,27 @@ func TestListSurvivesASpecThatBreaksTheRules(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Mini Redis  (its spec breaks the curriculum rules") {
 		t.Fatalf("out = %s", out.String())
+	}
+}
+
+// Each goroutine opens its own lock file, the way separate tattva processes
+// in different projects would.
+func TestConcurrentSavesKeepEveryEntry(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 5 {
+				if err := saveEntry(Entry{ID: fmt.Sprint(i), Path: fmt.Sprintf("/projects/%d", i), Files: map[string]string{}}); err != nil {
+					t.Error(err)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	if reg, _ := loadRegistry(); len(reg.Projects) != 20 {
+		t.Fatalf("registry kept %d of 20 entries", len(reg.Projects))
 	}
 }
