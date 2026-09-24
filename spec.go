@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 )
@@ -414,4 +415,63 @@ func safeRelPath(p string) bool {
 		}
 	}
 	return true
+}
+
+// PhaseDetails is what one expand call returns.
+type PhaseDetails struct {
+	Steps []StepDetail `json:"steps"`
+}
+
+// StepDetail is one step's detail as returned by an expand call.
+type StepDetail struct {
+	ID     string `json:"id"`
+	Detail Detail `json:"detail"`
+}
+
+// The schemas sent to Claude, generated from the types so they can't drift.
+var (
+	outlineSchema = mustSchema(Spec{})
+	phaseSchema   = mustSchema(PhaseDetails{})
+)
+
+func mustSchema(v any) []byte {
+	b, err := json.Marshal(schemaFor(reflect.TypeOf(v)))
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
+
+// schemaFor builds a strict JSON Schema for t: every property is required,
+// extra properties are forbidden, `enum` tags become enums, and fields tagged
+// schema:"-" are left out.
+func schemaFor(t reflect.Type) map[string]any {
+	switch t.Kind() {
+	case reflect.Pointer:
+		return schemaFor(t.Elem())
+	case reflect.String:
+		return map[string]any{"type": "string"}
+	case reflect.Int:
+		return map[string]any{"type": "integer"}
+	case reflect.Slice:
+		return map[string]any{"type": "array", "items": schemaFor(t.Elem())}
+	case reflect.Struct:
+		props := map[string]any{}
+		required := []string{}
+		for i := range t.NumField() {
+			f := t.Field(i)
+			if f.Tag.Get("schema") == "-" {
+				continue
+			}
+			name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+			s := schemaFor(f.Type)
+			if enum := f.Tag.Get("enum"); enum != "" {
+				s["enum"] = strings.Split(enum, ",")
+			}
+			props[name] = s
+			required = append(required, name)
+		}
+		return map[string]any{"type": "object", "properties": props, "required": required, "additionalProperties": false}
+	}
+	panic("schemaFor: unsupported kind " + t.Kind().String())
 }

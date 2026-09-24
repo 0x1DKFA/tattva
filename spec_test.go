@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -169,4 +170,56 @@ func TestLoadSpec(t *testing.T) {
 			t.Errorf("loadSpec(%s): err = %v, want an error naming the file", bad, err)
 		}
 	}
+}
+
+func TestOutlineSchema(t *testing.T) {
+	var s map[string]any
+	if err := json.Unmarshal(outlineSchema, &s); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := dig(t, s, "properties").(map[string]any)["schema_version"]; ok {
+		t.Error("schema_version must not be requested from Claude")
+	}
+	project := dig(t, s, "properties", "project", "properties").(map[string]any)
+	for _, f := range []string{"id", "target", "language"} {
+		if _, ok := project[f]; ok {
+			t.Errorf("project.%s must not be requested from Claude", f)
+		}
+	}
+	if _, ok := dig(t, s, "properties", "steps", "items", "properties").(map[string]any)["detail"]; ok {
+		t.Error("the outline schema must not include step details")
+	}
+	if got := fmt.Sprint(dig(t, s, "properties", "program", "properties", "kind", "enum")); got != "[server cli]" {
+		t.Errorf("program.kind enum = %s", got)
+	}
+	if s["additionalProperties"] != false || len(s["required"].([]any)) != len(s["properties"].(map[string]any)) {
+		t.Error("objects must require every property and forbid extra ones")
+	}
+}
+
+func TestPhaseSchema(t *testing.T) {
+	var s map[string]any
+	if err := json.Unmarshal(phaseSchema, &s); err != nil {
+		t.Fatal(err)
+	}
+	check := dig(t, s, "properties", "steps", "items", "properties", "detail", "properties", "checks", "items", "properties")
+	if got := fmt.Sprint(dig(t, check, "do", "enum")); got != "[exec tcp write file]" {
+		t.Errorf("check.do enum = %s", got)
+	}
+	if got := fmt.Sprint(dig(t, check, "match", "enum")); got != "[exact contains regex]" {
+		t.Errorf("check.match enum = %s", got)
+	}
+}
+
+// dig walks nested JSON objects by key.
+func dig(t *testing.T, v any, keys ...string) any {
+	t.Helper()
+	for _, k := range keys {
+		m, ok := v.(map[string]any)
+		if !ok {
+			t.Fatalf("expected an object at %q", k)
+		}
+		v = m[k]
+	}
+	return v
 }
