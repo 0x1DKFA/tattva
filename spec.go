@@ -389,6 +389,12 @@ func checkErrors(kind string, c Check) []string {
 	default:
 		bad(fmt.Sprintf("do %q must be exec, tcp, write or file", c.Do))
 	}
+	for _, f := range []struct{ name, value string }{{"input", c.Input}, {"expect", c.Expect}} {
+		if !isText(f.value) {
+			bad(f.name + " contains binary bytes; checks are text only, so create binary files by running the program " +
+				"earlier in the step, or drop the check and explain it in by_hand")
+		}
+	}
 	if (c.Do == "write" || c.Do == "file") && !safeRelPath(c.Path) {
 		bad(fmt.Sprintf("path %q must be relative with no .. segment", c.Path))
 	}
@@ -402,6 +408,17 @@ func checkErrors(kind string, c Check) []string {
 		bad(fmt.Sprintf("match %q must be exact, contains or regex", c.Match))
 	}
 	return errs
+}
+
+// isText reports whether s is plain text: no control characters other than
+// tab, newline and carriage return.
+func isText(s string) bool {
+	for _, r := range s {
+		if r < 0x20 && r != '\t' && r != '\n' && r != '\r' || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 
 // safeRelPath reports whether p stays inside the directory it's relative to.

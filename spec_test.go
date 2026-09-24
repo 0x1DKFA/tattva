@@ -129,6 +129,10 @@ func TestValidateRules(t *testing.T) {
 		{"absolute path", func(s *Spec) { addCheck(s, Check{Name: "abs", Do: "file", Path: "/etc/passwd", Match: "exact"}) }, `path "/etc/passwd" must be relative`},
 		{"bad regex", func(s *Spec) { c := &s.Steps[0].Detail.Checks[0]; c.Match, c.Expect = "regex", "(" }, "regex doesn't compile"},
 		{"unknown match", func(s *Spec) { s.Steps[0].Detail.Checks[0].Match = "fuzzy" }, `match "fuzzy"`},
+		{"binary fixture", func(s *Spec) {
+			addCheck(s, Check{Name: "db", Do: "write", Path: "a.db", Input: "SQLite format 3\x00\x10\x00", Match: "exact"})
+		}, "input contains binary bytes"},
+		{"binary expect", func(s *Spec) { s.Steps[0].Detail.Checks[0].Expect = "\x01" }, "expect contains binary bytes"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
