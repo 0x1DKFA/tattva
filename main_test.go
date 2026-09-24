@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -58,6 +59,13 @@ func TestRunNextDoneStatus(t *testing.T) {
 	}
 	err := run(context.Background(), t.TempDir(), []string{"status"}, &out)
 	if err == nil || !strings.Contains(err.Error(), "not in a tattva project") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunNewNeedsLang(t *testing.T) {
+	err := run(context.Background(), t.TempDir(), []string{"new", "Redis"}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "--lang") {
 		t.Fatalf("err = %v", err)
 	}
 }

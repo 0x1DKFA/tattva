@@ -75,6 +75,30 @@ func run(ctx context.Context, dir string, args []string, out io.Writer) error {
 			step = pos[0]
 		}
 		return withProject(dir, out, func(p *Project) error { return cmdDone(p, step, out) })
+	case "new":
+		fs := newFlags(cmd)
+		lang := fs.String("lang", "", "language you'll build in")
+		model := fs.String("model", "", "Claude model")
+		pos, err := parseArgs(fs, args)
+		if err != nil {
+			return err
+		}
+		if len(pos) != 1 || *lang == "" {
+			return errors.New(`usage: tattva new "<target>" --lang <lang> [--model <m>]`)
+		}
+		return cmdNew(ctx, dir, pos[0], *lang, *model, out)
+	case "revise":
+		fs := newFlags(cmd)
+		force := fs.Bool("force", false, "drop step details and step files")
+		model := fs.String("model", "", "Claude model")
+		pos, err := parseArgs(fs, args)
+		if err != nil {
+			return err
+		}
+		if len(pos) != 1 {
+			return errors.New(`usage: tattva revise "<feedback>" [--force] [--model <m>]`)
+		}
+		return withProject(dir, out, func(p *Project) error { return cmdRevise(ctx, p, pos[0], *force, *model, out) })
 	default:
 		return fmt.Errorf("unknown command %q (run `tattva help`)", cmd)
 	}
