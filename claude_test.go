@@ -127,3 +127,13 @@ func TestRunClaudeMissingBinary(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestRunClaudeInterrupted(t *testing.T) {
+	installFakeClaude(t, "hang")
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	_, _, err := runClaude(ctx, call{Schema: []byte(`{}`)})
+	if err == nil || err.Error() != "interrupted" {
+		t.Fatalf("err = %v, want interrupted", err)
+	}
+}

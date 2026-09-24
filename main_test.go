@@ -6,7 +6,9 @@ import (
 	"io"
 	"os"
 	"strings"
+	"syscall"
 	"testing"
+	"time"
 )
 
 // TestMain hides the real claude CLI so no test can ever call it.
@@ -67,5 +69,20 @@ func TestRunNewNeedsLang(t *testing.T) {
 	err := run(context.Background(), t.TempDir(), []string{"new", "Redis"}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "--lang") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// Without the handler, this SIGTERM would kill the test binary outright,
+// just as `kill` would leave running Claude calls orphaned.
+func TestInterruptContextCatchesSIGTERM(t *testing.T) {
+	ctx, stop := interruptContext()
+	defer stop()
+	if err := syscall.Kill(os.Getpid(), syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-ctx.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("SIGTERM did not cancel the context")
 	}
 }

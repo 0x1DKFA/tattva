@@ -68,7 +68,7 @@ func runClaude(ctx context.Context, c call) (json.RawMessage, float64, error) {
 		return nil, 0, fmt.Errorf("claude timed out after %s", callTimeout)
 	}
 	if ctx.Err() != nil {
-		return nil, 0, ctx.Err()
+		return nil, 0, errors.New("interrupted")
 	}
 	var res struct {
 		IsError          bool            `json:"is_error"`

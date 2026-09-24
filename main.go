@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"syscall"
 )
 
 const usage = `tattva turns a system you've used into a curriculum you build yourself.
@@ -24,7 +25,7 @@ Usage:
 `
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := interruptContext()
 	dir, err := os.Getwd()
 	if err == nil {
 		err = run(ctx, dir, os.Args[1:], os.Stdout)
@@ -34,6 +35,18 @@ func main() {
 		fmt.Fprintln(os.Stderr, "tattva:", err)
 		os.Exit(1)
 	}
+}
+
+// interruptContext is cancelled by Ctrl-C or by kill (SIGTERM), so running
+// Claude calls are stopped rather than left spending unattended. After the
+// first signal, a second one exits at once.
+func interruptContext() (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-ctx.Done()
+		stop() // restores the default handling for the next signal
+	}()
+	return ctx, stop
 }
 
 // run executes one command with dir as the working directory. It is main
