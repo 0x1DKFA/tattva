@@ -19,7 +19,7 @@ import (
 //go:embed prompts/design.md
 var designPrompt string
 
-const repairPrompt = `You repair JSON documents that failed validation. You receive a JSON document and the rules it breaks. Return the corrected document, matching the same schema, and change only what is needed to satisfy the rules. If a step introduces too many new concepts, split it into smaller steps and update the prerequisites that pointed at it.`
+const repairPrompt = `You repair JSON answers that failed validation. You receive the original request, the answer that was given, and the rules the answer breaks. Return the corrected answer, matching the same schema, and change only what is needed to satisfy the rules. If a requested item is missing, write it from the request. If a step introduces too many new concepts, split it into smaller steps and update the prerequisites that pointed at it.`
 
 // claude runs one call. It's a var so tests can swap in a fake.
 var claude = runClaude
@@ -46,7 +46,8 @@ func generate(ctx context.Context, c call, check func(json.RawMessage) []string)
 	if len(errs) == 0 {
 		return out, cost, nil, nil
 	}
-	prompt := "This document breaks these rules:\n- " + strings.Join(errs, "\n- ") + "\n\nDocument:\n" + string(out)
+	prompt := "The answer below breaks these rules:\n- " + strings.Join(errs, "\n- ") +
+		"\n\nOriginal request:\n" + c.Prompt + "\n\nAnswer:\n" + string(out)
 	fixed, more, err := claude(ctx, call{System: repairPrompt, Prompt: prompt, Schema: c.Schema, Model: c.Model})
 	cost += more
 	if err != nil {

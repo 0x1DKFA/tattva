@@ -47,7 +47,7 @@ func TestGenerateRepairsOnce(t *testing.T) {
 		}
 		return []string{"ok must be true"}
 	}
-	out, cost, broken, err := generate(context.Background(), call{System: "design", Web: true, Schema: []byte(`{}`)}, check)
+	out, cost, broken, err := generate(context.Background(), call{System: "design", Prompt: "Target: Redis", Web: true, Schema: []byte(`{}`)}, check)
 	if err != nil || string(out) != `{"ok":true}` {
 		t.Fatalf("out=%s err=%v", out, err)
 	}
@@ -58,7 +58,8 @@ func TestGenerateRepairsOnce(t *testing.T) {
 		t.Fatalf("calls=%d cost=%v", len(*calls), cost)
 	}
 	repair := (*calls)[1]
-	if repair.Web || !strings.Contains(repair.Prompt, "ok must be true") || !strings.Contains(repair.Prompt, `{"ok":false}`) {
+	if repair.Web || !strings.Contains(repair.Prompt, "ok must be true") || !strings.Contains(repair.Prompt, `{"ok":false}`) ||
+		!strings.Contains(repair.Prompt, "Target: Redis") {
 		t.Fatalf("repair call = %+v", repair)
 	}
 }
