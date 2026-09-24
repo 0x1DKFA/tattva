@@ -99,6 +99,17 @@ func run(ctx context.Context, dir string, args []string, out io.Writer) error {
 			return errors.New(`usage: tattva revise "<feedback>" [--force] [--model <m>]`)
 		}
 		return withProject(dir, out, func(p *Project) error { return cmdRevise(ctx, p, pos[0], *force, *model, out) })
+	case "expand":
+		fs := newFlags(cmd)
+		model := fs.String("model", "", "Claude model")
+		pos, err := parseArgs(fs, args)
+		if err != nil {
+			return err
+		}
+		if len(pos) != 0 {
+			return errors.New("usage: tattva expand [--model <m>]")
+		}
+		return withProject(dir, out, func(p *Project) error { return cmdExpand(ctx, p, *model, out) })
 	default:
 		return fmt.Errorf("unknown command %q (run `tattva help`)", cmd)
 	}

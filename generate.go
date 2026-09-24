@@ -10,7 +10,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -200,4 +202,123 @@ func newUUID() string {
 	b[6] = b[6]&0x0f | 0x40
 	b[8] = b[8]&0x3f | 0x80
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
+}
+
+//go:embed prompts/expand.md
+var expandPrompt string
+
+// expandConcurrency is how many phases expand at once.
+const expandConcurrency = 3 // ponytail: fixed; lower it if calls start hitting rate limits
+
+// phaseErrors checks one expand call's output (rules 10 to 12): exactly the
+// requested steps, each with a valid detail.
+func phaseErrors(kind string, out json.RawMessage, want []string) []string {
+	var pd PhaseDetails
+	if err := json.Unmarshal(out, &pd); err != nil {
+		return []string{"output isn't valid phase details: " + err.Error()}
+	}
+	var errs, got []string
+	for _, sd := range pd.Steps {
+		got = append(got, sd.ID)
+		d := sd.Detail
+		e, _ := detailErrors(kind, &d)
+		for _, msg := range e {
+			errs = append(errs, fmt.Sprintf("step %q: %s", sd.ID, msg))
+		}
+	}
+	if !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(want))) {
+		errs = append(errs, fmt.Sprintf("returned steps [%s], want exactly [%s]", strings.Join(got, " "), strings.Join(want, " ")))
+	}
+	return errs
+}
+
+// mergePhase stores one phase's details, saves the spec and renders the new
+// step files. The caller holds the expand mutex.
+func (p *Project) mergePhase(out json.RawMessage) error {
+	var pd PhaseDetails
+	if err := json.Unmarshal(out, &pd); err != nil {
+		return err
+	}
+	for _, sd := range pd.Steps {
+		d := sd.Detail
+		p.Spec.Steps[p.Spec.stepIndex(sd.ID)].Detail = &d
+	}
+	if err := p.saveSpec(); err != nil {
+		return err
+	}
+	return p.render()
+}
+
+// cmdExpand fills in every unexpanded step, with one call per phase and a few
+// phases at a time. Each phase is saved as soon as it finishes.
+func cmdExpand(ctx context.Context, p *Project, model string, out io.Writer) error {
+	type job struct {
+		phase string
+		ids   []string
+	}
+	var jobs []job
+	for _, ph := range p.Spec.Phases {
+		var ids []string
+		for _, st := range p.Spec.Steps {
+			if st.Phase == ph.ID && st.Detail == nil {
+				ids = append(ids, st.ID)
+			}
+		}
+		if len(ids) > 0 {
+			jobs = append(jobs, job{ph.ID, ids})
+		}
+	}
+	if len(jobs) == 0 {
+		fmt.Fprintln(out, "Every step is already expanded.")
+		return nil
+	}
+
+	start := time.Now()
+	fmt.Fprintf(out, "Expanding %d phases, %d at a time. Each takes a few minutes…\n", len(jobs), expandConcurrency)
+	outline, lang, kind := outlineOf(p.Spec), p.Spec.Project.Language, p.Spec.Program.Kind
+	var (
+		mu     sync.Mutex
+		wg     sync.WaitGroup
+		sem    = make(chan struct{}, expandConcurrency)
+		total  float64
+		done   int
+		failed []string
+	)
+	for _, j := range jobs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			began := time.Now()
+			prompt := fmt.Sprintf("Language: %s\n\nFull outline:\n%s\nPhase to expand: %s\nFill in detail for exactly these step ids, in this order: %s\n",
+				lang, outline, j.phase, strings.Join(j.ids, ", "))
+			res, cost, err := generate(ctx, call{System: expandPrompt, Prompt: prompt, Schema: phaseSchema, Web: true, Model: model},
+				func(o json.RawMessage) []string { return phaseErrors(kind, o, j.ids) })
+
+			mu.Lock()
+			defer mu.Unlock()
+			total += cost
+			done++
+			if err == nil {
+				err = p.mergePhase(res)
+			}
+			if err != nil {
+				failed = append(failed, j.phase)
+				fmt.Fprintf(out, "✗ phase %s failed (%d/%d): %v\n", j.phase, done, len(jobs), withSavedOutput(p.Root, "expand-"+j.phase, err))
+				return
+			}
+			fmt.Fprintf(out, "✓ phase %s expanded (%d/%d, %s, $%.2f)\n", j.phase, done, len(jobs), time.Since(began).Round(time.Second), cost)
+		}()
+	}
+	wg.Wait()
+	fmt.Fprintf(out, "Finished in %s, $%.2f in total.\n", time.Since(start).Round(time.Second), total)
+	_, warns := Validate(p.Spec)
+	for _, w := range warns {
+		fmt.Fprintln(out, "warning:", w)
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("%d phases failed (%s); run `tattva expand` again to retry them", len(failed), strings.Join(failed, ", "))
+	}
+	return nil
 }

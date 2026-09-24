@@ -164,3 +164,126 @@ func TestRevise(t *testing.T) {
 		t.Fatal("revise must keep the project id")
 	}
 }
+
+// phaseReply returns valid details for exactly the steps an expand prompt asks for.
+func phaseReply(c call) string {
+	_, ids, _ := strings.Cut(c.Prompt, "in this order: ")
+	var pd PhaseDetails
+	for _, id := range strings.Split(strings.TrimSpace(ids), ", ") {
+		pd.Steps = append(pd.Steps, StepDetail{ID: id, Detail: *testDetail()})
+	}
+	return mustJSON(pd)
+}
+
+func mustJSON(v any) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
+
+func TestPhaseErrors(t *testing.T) {
+	good := json.RawMessage(mustJSON(PhaseDetails{Steps: []StepDetail{{ID: "a", Detail: *testDetail()}}}))
+	if errs := phaseErrors("server", good, []string{"a"}); len(errs) > 0 {
+		t.Fatalf("errs = %q", errs)
+	}
+	if errs := phaseErrors("server", good, []string{"a", "b"}); !containsAny(errs, "want exactly [a b]") {
+		t.Fatalf("errs = %q", errs)
+	}
+	if errs := phaseErrors("cli", good, []string{"a"}); !containsAny(errs, "only for server programs") {
+		t.Fatalf("errs = %q", errs)
+	}
+}
+
+func TestExpandMergesPhasesAndResumes(t *testing.T) {
+	p := newTestProject(t)
+	p.Spec.Steps[0].Detail = nil // both phases now need expanding
+	if err := p.saveSpec(); err != nil {
+		t.Fatal(err)
+	}
+	failSetup := true
+	calls := fakeClaude(t, func(_ context.Context, c call) (string, error) {
+		if failSetup && strings.Contains(c.Prompt, "Phase to expand: setup") {
+			return "", errors.New("usage limit reached")
+		}
+		return phaseReply(c), nil
+	})
+	var out bytes.Buffer
+	err := cmdExpand(context.Background(), p, "", &out)
+	if err == nil || !strings.Contains(err.Error(), "1 phases failed (setup)") {
+		t.Fatalf("err = %v\n%s", err, out.String())
+	}
+	for _, c := range *calls {
+		if c.System != expandPrompt || !c.Web || string(c.Schema) != string(phaseSchema) || !strings.Contains(c.Prompt, "Full outline:") {
+			t.Fatalf("expand call = %+v", c)
+		}
+	}
+	q, err := openProject(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.Spec.Steps[0].Detail != nil || q.Spec.Steps[1].Detail == nil || q.Spec.Steps[2].Detail == nil {
+		t.Fatal("the finished phase must be saved and the failed one must not")
+	}
+	if _, err := os.Stat(q.abs(stepFile(1, "respond-to-ping"))); err != nil {
+		t.Fatal("the finished phase should have step files")
+	}
+
+	failSetup = false
+	n := len(*calls)
+	if err := cmdExpand(context.Background(), q, "", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if retried := (*calls)[n:]; len(retried) != 1 || !strings.Contains(retried[0].Prompt, "Phase to expand: setup") {
+		t.Fatalf("resume should retry only setup, got %d calls", len(retried))
+	}
+	if q.Spec.Steps[0].Detail == nil {
+		t.Fatal("setup not expanded on retry")
+	}
+	out.Reset()
+	if err := cmdExpand(context.Background(), q, "", &out); err != nil || !strings.Contains(out.String(), "already expanded") {
+		t.Fatalf("out=%s err=%v", out.String(), err)
+	}
+}
+
+func TestExpandSavesInvalidPhaseOutput(t *testing.T) {
+	p := newTestProject(t)
+	fakeClaude(t, func(context.Context, call) (string, error) { return `{"steps":[]}`, nil })
+	err := cmdExpand(context.Background(), p, "", io.Discard)
+	matches, _ := filepath.Glob(p.abs("curriculum/.failed/expand-protocol-*.json"))
+	if err == nil || len(matches) != 1 {
+		t.Fatalf("err=%v failed outputs=%v", err, matches)
+	}
+}
+
+func TestExpandInterruptKeepsFinishedPhases(t *testing.T) {
+	p := newTestProject(t)
+	p.Spec.Steps[0].Detail = nil
+	if err := p.saveSpec(); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	fakeClaude(t, func(_ context.Context, c call) (string, error) {
+		if strings.Contains(c.Prompt, "Phase to expand: protocol") {
+			cancel() // Ctrl-C while this phase is still running
+			return "", context.Canceled
+		}
+		return phaseReply(c), nil
+	})
+	err := cmdExpand(ctx, p, "", io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "run `tattva expand` again") {
+		t.Fatalf("err = %v", err)
+	}
+	q, err := openProject(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if q.Spec.Steps[0].Detail == nil {
+		t.Fatal("the phase that finished must be saved")
+	}
+	if q.Spec.Steps[1].Detail != nil {
+		t.Fatal("the interrupted phase must not be saved")
+	}
+}
