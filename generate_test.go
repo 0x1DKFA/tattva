@@ -47,9 +47,12 @@ func TestGenerateRepairsOnce(t *testing.T) {
 		}
 		return []string{"ok must be true"}
 	}
-	out, cost, err := generate(context.Background(), call{System: "design", Web: true, Schema: []byte(`{}`)}, check)
+	out, cost, broken, err := generate(context.Background(), call{System: "design", Web: true, Schema: []byte(`{}`)}, check)
 	if err != nil || string(out) != `{"ok":true}` {
 		t.Fatalf("out=%s err=%v", out, err)
+	}
+	if strings.Join(broken, "|") != "ok must be true" {
+		t.Fatalf("broken = %q, want the first draft's rule errors", broken)
 	}
 	if len(*calls) != 2 || cost != 0.02 {
 		t.Fatalf("calls=%d cost=%v", len(*calls), cost)
@@ -62,7 +65,7 @@ func TestGenerateRepairsOnce(t *testing.T) {
 
 func TestGenerateGivesUpAfterOneRepair(t *testing.T) {
 	calls := fakeClaude(t, func(context.Context, call) (string, error) { return `{"ok":false}`, nil })
-	_, _, err := generate(context.Background(), call{Schema: []byte(`{}`)}, func(json.RawMessage) []string { return []string{"still wrong"} })
+	_, _, _, err := generate(context.Background(), call{Schema: []byte(`{}`)}, func(json.RawMessage) []string { return []string{"still wrong"} })
 	var inv *invalidOutput
 	if !errors.As(err, &inv) || len(*calls) != 2 || !containsAny(inv.Errors, "still wrong") {
 		t.Fatalf("err=%v calls=%d", err, len(*calls))
@@ -285,5 +288,42 @@ func TestExpandInterruptKeepsFinishedPhases(t *testing.T) {
 	}
 	if q.Spec.Steps[1].Detail != nil {
 		t.Fatal("the interrupted phase must not be saved")
+	}
+}
+
+func TestNewReportsARepair(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	bad := testSpec()
+	bad.Steps[1].Prerequisites = []string{"ghost"}
+	fakeClaude(t, func(_ context.Context, c call) (string, error) {
+		if c.System == repairPrompt {
+			return outlineOf(testSpec()), nil
+		}
+		return outlineOf(bad), nil
+	})
+	var out bytes.Buffer
+	if err := cmdNew(context.Background(), t.TempDir(), "Redis", "go", "", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "repaired after the first draft broke these rules") || !strings.Contains(out.String(), `prerequisite "ghost"`) {
+		t.Fatalf("out = %s", out.String())
+	}
+}
+
+func TestExpandReportsARepair(t *testing.T) {
+	p := newTestProject(t) // only the protocol phase needs expanding
+	both := PhaseDetails{Steps: []StepDetail{{ID: "respond-to-ping", Detail: *testDetail()}, {ID: "echo-command", Detail: *testDetail()}}}
+	fakeClaude(t, func(_ context.Context, c call) (string, error) {
+		if c.System == repairPrompt {
+			return mustJSON(both), nil
+		}
+		return mustJSON(PhaseDetails{Steps: both.Steps[:1]}), nil
+	})
+	var out bytes.Buffer
+	if err := cmdExpand(context.Background(), p, "", &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "repaired after the first draft broke these rules") || !strings.Contains(out.String(), "want exactly") {
+		t.Fatalf("out = %s", out.String())
 	}
 }

@@ -35,26 +35,36 @@ func (e *invalidOutput) Error() string {
 }
 
 // generate makes a call, checks the output, and makes at most one repair
-// call. It returns the accepted output and the total cost.
-func generate(ctx context.Context, c call, check func(json.RawMessage) []string) (json.RawMessage, float64, error) {
+// call. It returns the accepted output, the total cost, and the rules the
+// first draft broke when a repair was needed.
+func generate(ctx context.Context, c call, check func(json.RawMessage) []string) (json.RawMessage, float64, []string, error) {
 	out, cost, err := claude(ctx, c)
 	if err != nil {
-		return nil, cost, err
+		return nil, cost, nil, err
 	}
 	errs := check(out)
 	if len(errs) == 0 {
-		return out, cost, nil
+		return out, cost, nil, nil
 	}
 	prompt := "This document breaks these rules:\n- " + strings.Join(errs, "\n- ") + "\n\nDocument:\n" + string(out)
 	fixed, more, err := claude(ctx, call{System: repairPrompt, Prompt: prompt, Schema: c.Schema, Model: c.Model})
 	cost += more
 	if err != nil {
-		return nil, cost, err
+		return nil, cost, errs, err
 	}
-	if errs := check(fixed); len(errs) > 0 {
-		return nil, cost, &invalidOutput{Output: fixed, Errors: errs}
+	if still := check(fixed); len(still) > 0 {
+		return nil, cost, errs, &invalidOutput{Output: fixed, Errors: still}
 	}
-	return fixed, cost, nil
+	return fixed, cost, errs, nil
+}
+
+// repairNote tells the user which rules a first draft broke before its
+// repair, or is empty when no repair was needed.
+func repairNote(broken []string) string {
+	if len(broken) == 0 {
+		return ""
+	}
+	return "  repaired after the first draft broke these rules:\n    - " + strings.Join(broken, "\n    - ") + "\n"
 }
 
 // saveFailed keeps output that broke the rules so the user can inspect it.
@@ -109,17 +119,17 @@ func outlineOf(s *Spec) string {
 }
 
 // designOutline runs a design or revise call and returns a valid spec.
-func designOutline(ctx context.Context, prompt, id, target, lang, model string) (*Spec, float64, error) {
+func designOutline(ctx context.Context, prompt, id, target, lang, model string) (*Spec, float64, []string, error) {
 	check := func(out json.RawMessage) []string {
 		_, errs := specFromOutline(out, id, target, lang)
 		return errs
 	}
-	out, cost, err := generate(ctx, call{System: designPrompt, Prompt: prompt, Schema: outlineSchema, Web: true, Model: model}, check)
+	out, cost, broken, err := generate(ctx, call{System: designPrompt, Prompt: prompt, Schema: outlineSchema, Web: true, Model: model}, check)
 	if err != nil {
-		return nil, cost, err
+		return nil, cost, broken, err
 	}
 	s, _ := specFromOutline(out, id, target, lang)
-	return s, cost, nil
+	return s, cost, broken, nil
 }
 
 // cmdNew designs a new curriculum in dir.
@@ -129,7 +139,7 @@ func cmdNew(ctx context.Context, dir, target, lang, model string, out io.Writer)
 	}
 	start := time.Now()
 	fmt.Fprintln(out, "Designing the curriculum. This usually takes a few minutes…")
-	s, cost, err := designOutline(ctx, fmt.Sprintf("Target: %s\nLanguage: %s\n", target, lang), newUUID(), target, lang, model)
+	s, cost, broken, err := designOutline(ctx, fmt.Sprintf("Target: %s\nLanguage: %s\n", target, lang), newUUID(), target, lang, model)
 	if err != nil {
 		return withSavedOutput(dir, "design", err)
 	}
@@ -143,7 +153,7 @@ func cmdNew(ctx context.Context, dir, target, lang, model string, out io.Writer)
 	if err := p.render(); err != nil {
 		return err
 	}
-	summarize(p, time.Since(start), cost, out)
+	summarize(p, time.Since(start), cost, broken, out)
 	fmt.Fprintln(out, "Review curriculum/README.md, then run `tattva revise \"<feedback>\"` or `tattva expand`.")
 	return nil
 }
@@ -162,7 +172,7 @@ func cmdRevise(ctx context.Context, p *Project, feedback string, force bool, mod
 	info := p.Spec.Project
 	prompt := fmt.Sprintf("Target: %s\nLanguage: %s\n\nCurrent outline:\n%s\nRevise the outline according to this feedback:\n%s\n",
 		info.Target, info.Language, outlineOf(p.Spec), feedback)
-	s, cost, err := designOutline(ctx, prompt, info.ID, info.Target, info.Language, model)
+	s, cost, broken, err := designOutline(ctx, prompt, info.ID, info.Target, info.Language, model)
 	if err != nil {
 		return withSavedOutput(p.Root, "revise", err)
 	}
@@ -178,14 +188,15 @@ func cmdRevise(ctx context.Context, p *Project, feedback string, force bool, mod
 	if err := p.render(); err != nil {
 		return err
 	}
-	summarize(p, time.Since(start), cost, out)
+	summarize(p, time.Since(start), cost, broken, out)
 	return nil
 }
 
 // summarize prints what a design or revise call produced.
-func summarize(p *Project, took time.Duration, cost float64, out io.Writer) {
+func summarize(p *Project, took time.Duration, cost float64, broken []string, out io.Writer) {
 	s := p.Spec
 	fmt.Fprintf(out, "%s: %d phases, %d steps (%s, $%.2f)\n", s.Project.Name, len(s.Phases), len(s.Steps), took.Round(time.Second), cost)
+	fmt.Fprint(out, repairNote(broken))
 	for pi, ph := range s.Phases {
 		fmt.Fprintf(out, "  Phase %d · %s\n", pi+1, ph.Title)
 	}
@@ -293,7 +304,7 @@ func cmdExpand(ctx context.Context, p *Project, model string, out io.Writer) err
 			began := time.Now()
 			prompt := fmt.Sprintf("Language: %s\n\nFull outline:\n%s\nPhase to expand: %s\nFill in detail for exactly these step ids, in this order: %s\n",
 				lang, outline, j.phase, strings.Join(j.ids, ", "))
-			res, cost, err := generate(ctx, call{System: expandPrompt, Prompt: prompt, Schema: phaseSchema, Web: true, Model: model},
+			res, cost, broken, err := generate(ctx, call{System: expandPrompt, Prompt: prompt, Schema: phaseSchema, Web: true, Model: model},
 				func(o json.RawMessage) []string { return phaseErrors(kind, o, j.ids) })
 
 			mu.Lock()
@@ -309,6 +320,7 @@ func cmdExpand(ctx context.Context, p *Project, model string, out io.Writer) err
 				return
 			}
 			fmt.Fprintf(out, "✓ phase %s expanded (%d/%d, %s, $%.2f)\n", j.phase, done, len(jobs), time.Since(began).Round(time.Second), cost)
+			fmt.Fprint(out, repairNote(broken))
 		}()
 	}
 	wg.Wait()
