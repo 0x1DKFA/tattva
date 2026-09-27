@@ -252,6 +252,20 @@ func TestProjectShowsOpenedHints(t *testing.T) {
 	}
 }
 
+func TestOverviewEscapesDiagramText(t *testing.T) {
+	p := newTestProject(t)
+	p.Spec.Architecture.Diagram = "flowchart LR\n  A[\"</pre><script>alert(1)</script>\"] --> B"
+	if err := p.saveSpec(); err != nil {
+		t.Fatal(err)
+	}
+	body := request(t, "GET", "/p/"+p.Spec.Project.ID, nil).Body.String()
+	for _, bad := range []string{"<script>alert(1)", "</pre><script>"} {
+		if strings.Contains(body, bad) {
+			t.Errorf("unescaped diagram text reached the page: %q", bad)
+		}
+	}
+}
+
 func TestProjectEscapesClaudeContent(t *testing.T) {
 	p := newTestProject(t)
 	p.Spec.Steps[0].Title = `<img src=x onerror=alert(1)>`
