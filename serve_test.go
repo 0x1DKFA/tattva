@@ -230,6 +230,14 @@ func TestProjectStepPage(t *testing.T) {
 	}
 }
 
+func TestProjectStepPageDividerHasAriaValuemin(t *testing.T) {
+	p := newTestProject(t)
+	body := request(t, "GET", "/p/"+p.Spec.Project.ID+"/s/1", nil).Body.String()
+	if !strings.Contains(body, `aria-valuemin="200"`) {
+		t.Errorf("divider missing aria-valuemin=\"200\":\n%s", body)
+	}
+}
+
 func TestProjectShowsOpenedHints(t *testing.T) {
 	p := newTestProject(t)
 	if err := p.appendEvent(Event{Step: "create-run-script", Event: "hint", Level: 1}); err != nil {

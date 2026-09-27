@@ -29,9 +29,11 @@
   var steps = document.querySelector(".steps");
   if (divider && steps) {
     var setWidth = function (px) {
-      var width = Math.round(Math.max(200, Math.min(px, window.innerWidth / 2))) + "px";
-      root.style.setProperty("--left-width", width);
-      save("tattva-left-width", width);
+      var clamped = Math.round(Math.max(200, Math.min(px, window.innerWidth / 2)));
+      root.style.setProperty("--left-width", clamped + "px");
+      save("tattva-left-width", clamped + "px");
+      divider.setAttribute("aria-valuenow", clamped);
+      divider.setAttribute("aria-valuemax", Math.round(window.innerWidth / 2));
     };
     divider.addEventListener("pointerdown", function (down) {
       down.preventDefault();
@@ -50,6 +52,7 @@
       e.preventDefault();
       setWidth(steps.getBoundingClientRect().width + (e.key === "ArrowRight" ? 20 : -20));
     });
+    setWidth(steps.getBoundingClientRect().width);
   }
 
   // Keep the selected step in view.
