@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -308,6 +309,11 @@ func handleAction(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
+	defer func() {
+		for _, n := range p.notices {
+			log.Println("note:", n)
+		}
+	}()
 	n, err := strconv.Atoi(r.PathValue("n"))
 	if err != nil || p.Spec.Project.ID != id || n < 1 || n > len(p.Spec.Steps) || p.Spec.Steps[n-1].Detail == nil {
 		http.NotFound(w, r)

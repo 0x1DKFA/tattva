@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -318,6 +319,25 @@ func TestActionsOpenHintsInOrder(t *testing.T) {
 	}
 	if fmt.Sprint(levels) != "[1 2 3]" {
 		t.Fatalf("hint levels recorded = %v, want [1 2 3]", levels)
+	}
+}
+
+func TestActionsPrintNoticesInTheTerminal(t *testing.T) {
+	p := newTestProject(t)
+	s := testSpec()
+	s.Steps[0].Title = "Create run.sh by hand"
+	if err := os.WriteFile(p.abs(specFile), encodeSpec(s), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	rec := request(t, "POST", "/p/"+p.Spec.Project.ID+"/s/1/start", url.Values{})
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if !strings.Contains(buf.String(), "was edited outside tattva") {
+		t.Fatalf("log output = %s", buf.String())
 	}
 }
 
