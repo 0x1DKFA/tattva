@@ -1,0 +1,267 @@
+/* tattva workspace styles.
+   Every colour comes from a variable. The theme blocks below set those
+   variables; to add a theme, copy a dark and a light block, change the
+   colours, and add the theme's name to `themes` in web.go. */
+
+/* === themes === */
+:root[data-theme="catppuccin"][data-mode="dark"] {
+  color-scheme: dark;
+  --bg: #11111b;
+  --surface: #1e1e2e;
+  --surface-2: #181825;
+  --selection: #313244;
+  --text: #cdd6f4;
+  --subtext: #a6adc8;
+  --dim: #6c7086;
+  --border: #45475a;
+  --border-active: #cba6f7;
+  --accent: #cba6f7;
+  --link: #89b4fa;
+  --done: #a6e3a1;
+  --current: #fab387;
+  --warning: #f38ba8;
+}
+:root[data-theme="catppuccin"][data-mode="light"] {
+  color-scheme: light;
+  --bg: #dce0e8;
+  --surface: #eff1f5;
+  --surface-2: #e6e9ef;
+  --selection: #ccd0da;
+  --text: #4c4f69;
+  --subtext: #6c6f85;
+  --dim: #9ca0b0;
+  --border: #bcc0cc;
+  --border-active: #8839ef;
+  --accent: #8839ef;
+  --link: #1e66f5;
+  --done: #40a02b;
+  --current: #fe640b;
+  --warning: #d20f39;
+}
+:root[data-theme="tokyo-night"][data-mode="dark"] {
+  color-scheme: dark;
+  --bg: #16161e;
+  --surface: #1a1b26;
+  --surface-2: #1f2335;
+  --selection: #292e42;
+  --text: #c0caf5;
+  --subtext: #a9b1d6;
+  --dim: #565f89;
+  --border: #3b4261;
+  --border-active: #7aa2f7;
+  --accent: #bb9af7;
+  --link: #7aa2f7;
+  --done: #9ece6a;
+  --current: #ff9e64;
+  --warning: #f7768e;
+}
+:root[data-theme="tokyo-night"][data-mode="light"] {
+  color-scheme: light;
+  --bg: #c4c8da;
+  --surface: #e1e2e7;
+  --surface-2: #d0d5e3;
+  --selection: #b7c1e3;
+  --text: #3760bf;
+  --subtext: #6172b0;
+  --dim: #848cb5;
+  --border: #a8aecb;
+  --border-active: #2e7de9;
+  --accent: #9854f1;
+  --link: #2e7de9;
+  --done: #587539;
+  --current: #b15c00;
+  --warning: #f52a65;
+}
+:root[data-theme="gruvbox"][data-mode="dark"] {
+  color-scheme: dark;
+  --bg: #1d2021;
+  --surface: #282828;
+  --surface-2: #32302f;
+  --selection: #3c3836;
+  --text: #ebdbb2;
+  --subtext: #bdae93;
+  --dim: #928374;
+  --border: #504945;
+  --border-active: #fabd2f;
+  --accent: #fabd2f;
+  --link: #83a598;
+  --done: #b8bb26;
+  --current: #fe8019;
+  --warning: #fb4934;
+}
+:root[data-theme="gruvbox"][data-mode="light"] {
+  color-scheme: light;
+  --bg: #ebdbb2;
+  --surface: #fbf1c7;
+  --surface-2: #f2e5bc;
+  --selection: #ebdbb2;
+  --text: #3c3836;
+  --subtext: #665c54;
+  --dim: #928374;
+  --border: #d5c4a1;
+  --border-active: #8f3f71;
+  --accent: #8f3f71;
+  --link: #076678;
+  --done: #79740e;
+  --current: #af3a03;
+  --warning: #9d0006;
+}
+/* === end themes === */
+
+:root {
+  --font: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "JetBrains Mono", "Cascadia Mono", Consolas, "Liberation Mono", monospace;
+  --gap: 8px;
+  --radius: 10px;
+  --left-width: 300px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.6 var(--font);
+}
+a { color: var(--link); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+::selection { background: var(--selection); }
+
+/* The top bar, like tmux's status line moved to the top. */
+.bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 12px;
+  background: var(--surface-2);
+  color: var(--subtext);
+  border-bottom: 1px solid var(--border);
+}
+.brand { color: var(--accent); font-weight: bold; }
+.bar select, .bar button {
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+.windows { display: flex; flex-wrap: wrap; gap: 10px; }
+.windows a { color: var(--subtext); text-decoration: none; padding: 0 4px; border-radius: 3px; }
+.windows a:hover { color: var(--text); }
+.windows a.active { color: var(--surface); background: var(--accent); }
+.stats { margin-left: auto; }
+
+/* Panes: tiled with gaps like Hyprland, titles in the top border like tmux. */
+.pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 14px 10px;
+}
+.pane:hover, .pane:focus-within { border-color: var(--border-active); }
+.pane-title {
+  position: absolute;
+  top: -0.8em;
+  left: 12px;
+  margin: 0;
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: normal;
+  line-height: 1.6;
+  color: var(--accent);
+  background: var(--surface);
+}
+.pane-body { flex: 1; min-height: 0; overflow: auto; }
+
+/* Landing page: one pane per project. */
+.tiles {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  align-content: start;
+  gap: 24px 16px;
+  padding: 24px 16px 16px;
+  overflow: auto;
+}
+.card { color: var(--text); text-decoration: none; }
+.card p { margin: 2px 0; }
+.card-name { font-weight: bold; }
+.card-meta, .card-current { color: var(--subtext); }
+.card-bar { color: var(--done); }
+.card.missing { color: var(--dim); }
+.card.missing:hover { border-color: var(--border); }
+
+/* Project page: the steps pane, the divider and the content pane. */
+.panes { flex: 1; display: flex; min-height: 0; padding: 20px var(--gap) var(--gap); }
+.steps { flex: none; width: var(--left-width); min-width: 200px; max-width: 50vw; }
+.content { flex: 1; min-width: 0; }
+.divider { flex: none; width: 12px; cursor: col-resize; touch-action: none; }
+.divider::after { content: ""; display: block; width: 2px; height: 100%; margin: 0 auto; border-radius: 1px; }
+.divider:hover::after, .divider:focus-visible::after { background: var(--border-active); }
+.divider:focus-visible { outline: none; }
+
+.nav-item {
+  display: block;
+  padding: 0 6px;
+  border-radius: 4px;
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+a.nav-item:hover, .nav-item.selected { background: var(--selection); }
+.nav-item.selected { color: var(--accent); }
+.phase { margin: 12px 0 2px; color: var(--subtext); }
+.status-done .mark { color: var(--done); }
+.status-in-progress .mark { color: var(--current); }
+.status-locked, .unexpanded { color: var(--dim); }
+.hint-count { color: var(--dim); font-size: 12px; }
+
+/* Rendered markdown, styled like a terminal pager. */
+.md h1, .md h2, .md h3 { color: var(--accent); font-size: 1em; margin: 1.4em 0 0.4em; }
+.md h1:first-child { margin-top: 0; }
+.md h1::before { content: "# "; color: var(--dim); }
+.md h2::before { content: "## "; color: var(--dim); }
+.md h3::before { content: "### "; color: var(--dim); }
+.md p, .md ul, .md ol { margin: 0.4em 0; }
+.md li > p { margin: 0; }
+.md code { background: var(--surface-2); padding: 0 4px; border-radius: 3px; }
+.md pre { background: var(--surface-2); padding: 10px 12px; border-radius: 6px; overflow: auto; }
+.md pre code { background: none; padding: 0; }
+.md table { border-collapse: collapse; }
+.md th, .md td { border: 1px solid var(--border); padding: 2px 8px; }
+.md blockquote { margin: 0.4em 0; padding-left: 12px; border-left: 2px solid var(--border); color: var(--subtext); }
+.meta { color: var(--subtext); }
+.dim { color: var(--dim); }
+.note { color: var(--warning); }
+pre.mermaid { background: var(--surface); text-align: center; }
+details.checks summary { cursor: pointer; color: var(--subtext); }
+
+/* Buttons look like bracketed terminal text. */
+.actions { display: flex; flex-wrap: wrap; gap: 16px; align-items: baseline; margin: 0.4em 0 1em; }
+.actions button, .hint button {
+  font: inherit;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.actions button:hover, .hint button:hover { text-decoration: underline; }
+.done-note { color: var(--done); }
+
+@media (max-width: 800px) {
+  .panes { flex-direction: column; gap: 24px; }
+  .steps { width: auto; max-width: none; max-height: 40vh; }
+  .divider { display: none; }
+}
