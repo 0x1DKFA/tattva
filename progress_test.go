@@ -21,7 +21,7 @@ func TestProgressOf(t *testing.T) {
 		ev("create-run-script", "completed", 2),
 		ev("respond-to-ping", "started", 3),
 		ev("ghost-step", "completed", 4),
-		ev("respond-to-ping", "hint", 5), // an event type from a later version: ignored
+		ev("respond-to-ping", "reflected", 5), // an event type from a later version: ignored
 	})
 	want := map[string]Status{"create-run-script": Done, "respond-to-ping": InProgress, "echo-command": Locked}
 	if !reflect.DeepEqual(pr.Status, want) {
@@ -175,5 +175,47 @@ func TestNextOnAStepInProgressThatLostItsDetails(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "isn't expanded") || strings.Contains(out.String(), "→") {
 		t.Fatalf("next must not point at a step file that no longer exists: %s", out.String())
+	}
+}
+
+func TestProgressCountsHints(t *testing.T) {
+	pr := progressOf(testSpec(), []Event{
+		{Step: "create-run-script", Event: "hint", Level: 1},
+		{Step: "create-run-script", Event: "hint", Level: 2},
+		{Step: "respond-to-ping", Event: "hint", Level: 1},
+	})
+	if pr.Hints["create-run-script"] != 2 || pr.Hints["respond-to-ping"] != 1 || pr.Hints["echo-command"] != 0 {
+		t.Fatalf("hints = %v", pr.Hints)
+	}
+	if pr.Status["create-run-script"] != Available {
+		t.Fatalf("opening a hint must not change a step's status, got %v", pr.Status["create-run-script"])
+	}
+}
+
+func TestStatusShowsHintCounts(t *testing.T) {
+	p := newTestProject(t)
+	for level := 1; level <= 2; level++ {
+		if err := p.appendEvent(Event{Step: "create-run-script", Event: "hint", Level: level}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out bytes.Buffer
+	if err := cmdStatus(p, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "  ○ 01 Create run.sh (2 hints)\n") {
+		t.Fatalf("status = %s", out.String())
+	}
+	events, _, _ := readEvents(p.abs(progressFile))
+	if len(events) != 2 || events[1].Level != 2 || events[1].At.IsZero() {
+		t.Fatalf("events = %+v", events)
+	}
+}
+
+func TestHintNote(t *testing.T) {
+	for n, want := range map[int]string{0: "", 1: "1 hint", 3: "3 hints"} {
+		if got := hintNote(n); got != want {
+			t.Errorf("hintNote(%d) = %q, want %q", n, got, want)
+		}
 	}
 }

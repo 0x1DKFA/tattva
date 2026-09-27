@@ -18,6 +18,7 @@ type Event struct {
 	At    time.Time `json:"at"`
 	Step  string    `json:"step"`
 	Event string    `json:"event"`
+	Level int       `json:"level,omitempty"` // which hint, for "hint" events
 }
 
 // now is the clock for new events.
@@ -64,6 +65,7 @@ type Progress struct {
 	Status  map[string]Status
 	Current string // the most recently started step still in progress, or ""
 	Done    int
+	Hints   map[string]int // the highest hint level opened, per step
 	Warns   []string
 }
 
@@ -72,6 +74,7 @@ type Progress struct {
 func progressOf(s *Spec, events []Event) Progress {
 	started := map[string]time.Time{}
 	completed := map[string]bool{}
+	hints := map[string]int{}
 	unknown := 0
 	for _, ev := range events {
 		if s.stepIndex(ev.Step) < 0 {
@@ -85,9 +88,13 @@ func progressOf(s *Spec, events []Event) Progress {
 			}
 		case "completed":
 			completed[ev.Step] = true
+		case "hint":
+			if ev.Level > hints[ev.Step] {
+				hints[ev.Step] = ev.Level
+			}
 		}
 	}
-	pr := Progress{Status: map[string]Status{}}
+	pr := Progress{Status: map[string]Status{}, Hints: hints}
 	if unknown > 0 {
 		pr.Warns = append(pr.Warns, fmt.Sprintf("%d progress events refer to steps no longer in the curriculum; ignored", unknown))
 	}
@@ -115,9 +122,10 @@ func progressOf(s *Spec, events []Event) Progress {
 	return pr
 }
 
-// appendEvent adds one event to the progress log and records the new hash.
-func (p *Project) appendEvent(step, event string) error {
-	line, err := json.Marshal(Event{At: now(), Step: step, Event: event})
+// appendEvent adds one event, stamped with the current time, to the progress log and records the new hash.
+func (p *Project) appendEvent(ev Event) error {
+	ev.At = now()
+	line, err := json.Marshal(ev)
 	if err != nil {
 		return err
 	}
@@ -182,7 +190,7 @@ func cmdNext(p *Project, out io.Writer) error {
 			fmt.Fprintf(out, "Next is step %s · %s, but it isn't expanded yet. Run `tattva expand` first.\n", num(i), st.Title)
 			return nil
 		}
-		if err := p.appendEvent(st.ID, "started"); err != nil {
+		if err := p.appendEvent(Event{Step: st.ID, Event: "started"}); err != nil {
 			return err
 		}
 		fmt.Fprintf(out, "Started: %s\n", p.describeStep(i))
@@ -231,7 +239,7 @@ func cmdDone(p *Project, arg string, out io.Writer) error {
 	if len(missing) > 0 {
 		fmt.Fprintf(out, "Note: prerequisite steps %s aren't done yet.\n", strings.Join(missing, ", "))
 	}
-	if err := p.appendEvent(st.ID, "completed"); err != nil {
+	if err := p.appendEvent(Event{Step: st.ID, Event: "completed"}); err != nil {
 		return err
 	}
 	total := len(p.Spec.Steps)
@@ -258,8 +266,11 @@ func cmdStatus(p *Project, out io.Writer) error {
 				continue
 			}
 			note := ""
+			if h := hintNote(pr.Hints[st.ID]); h != "" {
+				note = " (" + h + ")"
+			}
 			if st.Detail == nil {
-				note = "  (not expanded)"
+				note += "  (not expanded)"
 			}
 			fmt.Fprintf(out, "  %s %s %s%s\n", marks[pr.Status[st.ID]], num(i), st.Title, note)
 		}
@@ -274,4 +285,15 @@ func cmdStatus(p *Project, out io.Writer) error {
 		fmt.Fprintln(out, "edited outside tattva (not overwritten):", rel)
 	}
 	return nil
+}
+
+// hintNote is "1 hint", "3 hints", or "" when no hint was opened.
+func hintNote(n int) string {
+	switch n {
+	case 0:
+		return ""
+	case 1:
+		return "1 hint"
+	}
+	return fmt.Sprintf("%d hints", n)
 }
