@@ -2,8 +2,10 @@ package main
 
 import (
 	"io/fs"
+	"math"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -97,6 +99,62 @@ func TestScriptsAreServedFiles(t *testing.T) {
 	for _, name := range []string{"theme-boot.js", "app.js"} {
 		if js := readStatic(t, name); !strings.Contains(js, "tattva-") {
 			t.Errorf("%s doesn't use the tattva-* storage keys", name)
+		}
+	}
+}
+
+// relLuminance is a colour's WCAG relative luminance, with sRGB linearisation.
+func relLuminance(hex string) float64 {
+	lin := func(c int64) float64 {
+		v := float64(c) / 255
+		if v <= 0.03928 {
+			return v / 12.92
+		}
+		return math.Pow((v+0.055)/1.055, 2.4)
+	}
+	r, _ := strconv.ParseInt(hex[1:3], 16, 32)
+	g, _ := strconv.ParseInt(hex[3:5], 16, 32)
+	b, _ := strconv.ParseInt(hex[5:7], 16, 32)
+	return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b)
+}
+
+// contrastRatio is the WCAG 2 contrast ratio between two #rrggbb colours.
+func contrastRatio(a, b string) float64 {
+	l1, l2 := relLuminance(a), relLuminance(b)
+	if l1 < l2 {
+		l1, l2 = l2, l1
+	}
+	return (l1 + 0.05) / (l2 + 0.05)
+}
+
+// TestThemeContrast guards WCAG AA contrast for every theme, including ones
+// added later.
+func TestThemeContrast(t *testing.T) {
+	blocks, _ := themeSection(t)
+	block := regexp.MustCompile(`:root\[data-theme="([a-z0-9-]+)"\]\[data-mode="(dark|light)"\]\s*\{([^}]*)\}`)
+	value := regexp.MustCompile(`(--[a-z0-9-]+):\s*(#[0-9a-fA-F]{6})`)
+	pairs := []struct {
+		fg, bg string
+		min    float64
+	}{
+		{"--text", "--surface", 4.5},
+		{"--accent", "--surface", 4.5},
+		{"--link", "--surface", 4.5},
+		{"--text", "--surface-2", 4.5},
+		{"--subtext", "--surface", 3.0},
+		{"--subtext", "--surface-2", 3.0},
+	}
+	for _, m := range block.FindAllStringSubmatch(blocks, -1) {
+		theme, mode := m[1], m[2]
+		vars := map[string]string{}
+		for _, v := range value.FindAllStringSubmatch(m[3], -1) {
+			vars[v[1]] = v[2]
+		}
+		for _, pair := range pairs {
+			ratio := contrastRatio(vars[pair.fg], vars[pair.bg])
+			if ratio < pair.min {
+				t.Errorf("%s/%s: %s on %s = %.2f:1, want >= %.1f:1", theme, mode, pair.fg, pair.bg, ratio, pair.min)
+			}
 		}
 	}
 }
