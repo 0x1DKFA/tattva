@@ -1,6 +1,9 @@
 {{define "title"}}projects{{end}}
 {{define "main"}}
 <main class="tiles">
+{{- with .Warn}}
+  <section class="pane card"><h2 class="pane-title">note</h2><p class="note">{{.}}</p></section>
+{{- end}}
 {{- range .Projects}}
 {{- if .Problem}}
   <section class="pane card missing">

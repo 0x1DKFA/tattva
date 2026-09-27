@@ -92,6 +92,7 @@ func secure(next http.Handler) http.Handler {
 // pageView is what every page template receives.
 type pageView struct {
 	Projects []projectView
+	Warn     string        // landing page: a registry warning, or ""
 	Current  *projectView  // the project being shown; nil on the landing page
 	Phases   []phaseNav    // project page: the steps pane
 	Overview *overviewPage // project page showing the overview
@@ -132,8 +133,8 @@ func show(w http.ResponseWriter, t *template.Template, v pageView) {
 }
 
 func handleHome(w http.ResponseWriter, r *http.Request) {
-	projects, _ := loadProjects()
-	show(w, homePage, pageView{Projects: projects})
+	projects, warn := loadProjects()
+	show(w, homePage, pageView{Projects: projects, Warn: warn})
 }
 
 // slug turns "Mini Redis" into "mini-redis", for the window list.

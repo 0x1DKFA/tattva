@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -120,6 +121,24 @@ func TestHomeShowsProjectCards(t *testing.T) {
 func TestHomeWithNoProjects(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	if body := request(t, "GET", "/", nil).Body.String(); !strings.Contains(body, "No projects yet") {
+		t.Fatalf("body = %s", body)
+	}
+}
+
+func TestHomeShowsRegistryWarning(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	path, err := registryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("{not json"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := request(t, "GET", "/", nil).Body.String()
+	if !strings.Contains(body, "ignoring unreadable registry") {
 		t.Fatalf("body = %s", body)
 	}
 }
