@@ -44,11 +44,21 @@ func generate(ctx context.Context, c call, check func(json.RawMessage) []string)
 	}
 	errs := check(out)
 	if len(errs) == 0 {
+		c.Log.Printf("[%s] rules: ok", c.Label)
 		return out, cost, nil, nil
+	}
+	rules := "rules"
+	if len(errs) == 1 {
+		rules = "rule"
+	}
+	c.Log.Show("  [%s] the first draft broke %d %s; asking Claude to repair it", c.Label, len(errs), rules)
+	for _, e := range errs {
+		c.Log.Printf("[%s]   broke: %s", c.Label, e)
 	}
 	prompt := "The answer below breaks these rules:\n- " + strings.Join(errs, "\n- ") +
 		"\n\nOriginal request:\n" + c.Prompt + "\n\nAnswer:\n" + string(out)
-	fixed, more, err := claude(ctx, call{System: repairPrompt, Prompt: prompt, Schema: c.Schema, Model: c.Model})
+	r := call{System: repairPrompt, Prompt: prompt, Schema: c.Schema, Model: c.Model, Label: c.Label + " repair", Log: c.Log}
+	fixed, more, err := claude(ctx, r)
 	cost += more
 	if err != nil {
 		return nil, cost, errs, err
@@ -56,16 +66,16 @@ func generate(ctx context.Context, c call, check func(json.RawMessage) []string)
 	if still := check(fixed); len(still) > 0 {
 		return nil, cost, errs, &invalidOutput{Output: fixed, Errors: still}
 	}
+	c.Log.Printf("[%s] rules: ok", r.Label)
 	return fixed, cost, errs, nil
 }
 
-// repairNote tells the user which rules a first draft broke before its
-// repair, or is empty when no repair was needed.
-func repairNote(broken []string) string {
-	if len(broken) == 0 {
-		return ""
+// showRepairs tells the user which rules a first draft broke before its
+// repair.
+func showRepairs(lg *runLog, broken []string) {
+	if len(broken) > 0 {
+		lg.Show("  repaired after the first draft broke these rules:\n    - %s", strings.Join(broken, "\n    - "))
 	}
-	return "  repaired after the first draft broke these rules:\n    - " + strings.Join(broken, "\n    - ") + "\n"
 }
 
 // saveFailed keeps output that broke the rules so the user can inspect it.
@@ -119,13 +129,15 @@ func outlineOf(s *Spec) string {
 	return string(encodeSpec(&o))
 }
 
-// designOutline runs a design or revise call and returns a valid spec.
-func designOutline(ctx context.Context, prompt, id, target, lang, model string) (*Spec, float64, []string, error) {
+// designOutline runs a design or revise call, c with its prompt, model and
+// log, and returns a valid spec.
+func designOutline(ctx context.Context, c call, id, target, lang string) (*Spec, float64, []string, error) {
 	check := func(out json.RawMessage) []string {
 		_, errs := specFromOutline(out, id, target, lang)
 		return errs
 	}
-	out, cost, broken, err := generate(ctx, call{System: designPrompt, Prompt: prompt, Schema: outlineSchema, Web: true, Model: model}, check)
+	c.System, c.Schema, c.Web = designPrompt, outlineSchema, true
+	out, cost, broken, err := generate(ctx, c, check)
 	if err != nil {
 		return nil, cost, broken, err
 	}
@@ -134,13 +146,17 @@ func designOutline(ctx context.Context, prompt, id, target, lang, model string) 
 }
 
 // cmdNew designs a new curriculum in dir.
-func cmdNew(ctx context.Context, dir, target, lang, model string, out io.Writer) error {
+func cmdNew(ctx context.Context, dir, target, lang, model string, out io.Writer) (err error) {
 	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(specFile))); err == nil {
 		return fmt.Errorf("%s already exists here; use `tattva revise` to change it", specFile)
 	}
 	start := time.Now()
 	fmt.Fprintln(out, "Designing the curriculum. This usually takes a few minutes…")
-	s, cost, broken, err := designOutline(ctx, fmt.Sprintf("Target: %s\nLanguage: %s\n", target, lang), newUUID(), target, lang, model)
+	lg := openLog("new", out)
+	defer func() { lg.Close(err) }()
+	lg.Printf("tattva new %q --lang %s in %s", target, lang, dir)
+	prompt := fmt.Sprintf("Target: %s\nLanguage: %s\n", target, lang)
+	s, cost, broken, err := designOutline(ctx, call{Prompt: prompt, Model: model, Label: "design", Log: lg}, newUUID(), target, lang)
 	if err != nil {
 		return withSavedOutput(dir, "design", err)
 	}
@@ -154,13 +170,13 @@ func cmdNew(ctx context.Context, dir, target, lang, model string, out io.Writer)
 	if err := p.render(); err != nil {
 		return err
 	}
-	summarize(p, time.Since(start), cost, broken, out)
+	summarize(p, time.Since(start), cost, broken, lg)
 	fmt.Fprintln(out, "Review curriculum/README.md, then run `tattva revise \"<feedback>\"` or `tattva expand`.")
 	return nil
 }
 
 // cmdRevise rewrites the outline from the current one plus feedback.
-func cmdRevise(ctx context.Context, p *Project, feedback string, force bool, model string, out io.Writer) error {
+func cmdRevise(ctx context.Context, p *Project, feedback string, force bool, model string, out io.Writer) (err error) {
 	expanded := false
 	for _, st := range p.Spec.Steps {
 		expanded = expanded || st.Detail != nil
@@ -170,10 +186,13 @@ func cmdRevise(ctx context.Context, p *Project, feedback string, force bool, mod
 	}
 	start := time.Now()
 	fmt.Fprintln(out, "Revising the curriculum. This usually takes a few minutes…")
+	lg := openLog("revise", out)
+	defer func() { lg.Close(err) }()
+	lg.Printf("tattva revise %q in %s", feedback, p.Root)
 	info := p.Spec.Project
 	prompt := fmt.Sprintf("Target: %s\nLanguage: %s\n\nCurrent outline:\n%s\nRevise the outline according to this feedback:\n%s\n",
 		info.Target, info.Language, outlineOf(p.Spec), feedback)
-	s, cost, broken, err := designOutline(ctx, prompt, info.ID, info.Target, info.Language, model)
+	s, cost, broken, err := designOutline(ctx, call{Prompt: prompt, Model: model, Label: "revise", Log: lg}, info.ID, info.Target, info.Language)
 	if err != nil {
 		return withSavedOutput(p.Root, "revise", err)
 	}
@@ -189,21 +208,21 @@ func cmdRevise(ctx context.Context, p *Project, feedback string, force bool, mod
 	if err := p.render(); err != nil {
 		return err
 	}
-	summarize(p, time.Since(start), cost, broken, out)
+	summarize(p, time.Since(start), cost, broken, lg)
 	return nil
 }
 
-// summarize prints what a design or revise call produced.
-func summarize(p *Project, took time.Duration, cost float64, broken []string, out io.Writer) {
+// summarize shows what a design or revise call produced.
+func summarize(p *Project, took time.Duration, cost float64, broken []string, lg *runLog) {
 	s := p.Spec
-	fmt.Fprintf(out, "%s: %d phases, %d steps (%s, $%.2f)\n", s.Project.Name, len(s.Phases), len(s.Steps), took.Round(time.Second), cost)
-	fmt.Fprint(out, repairNote(broken))
+	lg.Show("%s: %d phases, %d steps (%s, $%.2f)", s.Project.Name, len(s.Phases), len(s.Steps), took.Round(time.Second), cost)
+	showRepairs(lg, broken)
 	for pi, ph := range s.Phases {
-		fmt.Fprintf(out, "  Phase %d · %s\n", pi+1, ph.Title)
+		lg.Show("  Phase %d · %s", pi+1, ph.Title)
 	}
 	_, warns := Validate(s)
 	for _, w := range warns {
-		fmt.Fprintln(out, "warning:", w)
+		lg.Show("warning: %s", w)
 	}
 }
 
@@ -263,7 +282,7 @@ func (p *Project) mergePhase(out json.RawMessage) error {
 
 // cmdExpand fills in every unexpanded step, with one call per phase and a few
 // phases at a time. Each phase is saved as soon as it finishes.
-func cmdExpand(ctx context.Context, p *Project, model string, out io.Writer) error {
+func cmdExpand(ctx context.Context, p *Project, model string, out io.Writer) (err error) {
 	type job struct {
 		phase string
 		ids   []string
@@ -287,6 +306,9 @@ func cmdExpand(ctx context.Context, p *Project, model string, out io.Writer) err
 
 	start := time.Now()
 	fmt.Fprintf(out, "Expanding %d phases, %d at a time. Each takes a few minutes…\n", len(jobs), expandConcurrency)
+	lg := openLog("expand", out)
+	defer func() { lg.Close(err) }()
+	lg.Printf("tattva expand in %s", p.Root)
 	outline, lang, kind := outlineOf(p.Spec), p.Spec.Project.Language, p.Spec.Program.Kind
 	var (
 		mu     sync.Mutex
@@ -305,8 +327,8 @@ func cmdExpand(ctx context.Context, p *Project, model string, out io.Writer) err
 			began := time.Now()
 			prompt := fmt.Sprintf("Language: %s\n\nFull outline:\n%s\nPhase to expand: %s\nFill in detail for exactly these step ids, in this order: %s\n",
 				lang, outline, j.phase, strings.Join(j.ids, ", "))
-			res, cost, broken, err := generate(ctx, call{System: expandPrompt, Prompt: prompt, Schema: phaseSchema, Web: true, Model: model},
-				func(o json.RawMessage) []string { return phaseErrors(kind, o, j.ids) })
+			c := call{System: expandPrompt, Prompt: prompt, Schema: phaseSchema, Web: true, Model: model, Label: "expand " + j.phase, Log: lg}
+			res, cost, broken, err := generate(ctx, c, func(o json.RawMessage) []string { return phaseErrors(kind, o, j.ids) })
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -317,18 +339,18 @@ func cmdExpand(ctx context.Context, p *Project, model string, out io.Writer) err
 			}
 			if err != nil {
 				failed = append(failed, j.phase)
-				fmt.Fprintf(out, "✗ phase %s failed (%d/%d): %v\n", j.phase, done, len(jobs), withSavedOutput(p.Root, "expand-"+j.phase, err))
+				lg.Show("✗ phase %s failed (%d/%d): %v", j.phase, done, len(jobs), withSavedOutput(p.Root, "expand-"+j.phase, err))
 				return
 			}
-			fmt.Fprintf(out, "✓ phase %s expanded (%d/%d, %s, $%.2f)\n", j.phase, done, len(jobs), time.Since(began).Round(time.Second), cost)
-			fmt.Fprint(out, repairNote(broken))
+			lg.Show("✓ phase %s expanded (%d/%d, %s, $%.2f)", j.phase, done, len(jobs), time.Since(began).Round(time.Second), cost)
+			showRepairs(lg, broken)
 		}()
 	}
 	wg.Wait()
-	fmt.Fprintf(out, "Finished in %s, $%.2f in total.\n", time.Since(start).Round(time.Second), total)
+	lg.Show("Finished in %s, $%.2f in total.", time.Since(start).Round(time.Second), total)
 	_, warns := Validate(p.Spec)
 	for _, w := range warns {
-		fmt.Fprintln(out, "warning:", w)
+		lg.Show("warning: %s", w)
 	}
 	if len(failed) > 0 {
 		return fmt.Errorf("%d phases failed (%s); run `tattva expand` again to retry them", len(failed), strings.Join(failed, ", "))

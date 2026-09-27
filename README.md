@@ -24,6 +24,8 @@ tattva list                                           # all your projects
 tattva serve                                          # read and track in your browser
 ```
 
+`new`, `revise` and `expand` take a few minutes. While they run you see what Claude searches for and reads. Each run also writes a full log to `~/.tattva/logs/`, and its first line of output names the file. The log holds every Claude call, what Claude said and looked up, any repairs, the cost, and how the run ended.
+
 Everything lives in `curriculum/` inside your project: `spec.json` (the curriculum), `progress.jsonl` (your progress), `README.md` and `steps/*.md`. Commit it with your code and git shows your progress next to the code that made it.
 
 `tattva serve` opens a workspace at http://127.0.0.1:4747: your projects as cards, and each project's steps next to the step you're reading. Hints open one at a time and are recorded, so you can see which steps you finished on your own. Pick a theme and dark or light mode in the top-left corner.

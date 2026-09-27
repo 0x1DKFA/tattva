@@ -222,7 +222,7 @@ A single Go function runs one call. There is no interface layer. §25 asks that 
 
 ```
 claude -p
-  --output-format json
+  --output-format stream-json --verbose
   --json-schema <schema>
   --system-prompt <built-in prompt for this call>
   --tools WebSearch,WebFetch            # "" for repair
@@ -237,6 +237,7 @@ claude -p
 - Each call has a 20-minute timeout. Ctrl-C, or `kill` (SIGTERM), cancels every running call and reports it as interrupted; a second signal exits at once.
 - If `claude` exits with a non-zero status or returns an error result, tattva shows Claude's message. Tattva doesn't retry, because Claude Code already retries API errors.
 - The result's `total_cost_usd` is printed for each call and totalled for each command.
+- The output is read line by line as Claude works. Its searches and the pages it reads show in the terminal as they happen. `new`, `revise` and `expand` each write a log to `~/.tattva/logs/<time>-<command>-<pid>.log`, and the first line of output says which file. The log records every call with its model and outcome, what Claude said, searched for and read, tool errors, Claude's stderr, rule checks and repairs, cost, and how the command ended. Failing to create the log doesn't stop the command. Tattva never deletes old logs.
 
 ### Schemas
 
@@ -352,6 +353,7 @@ One Go module, package `main`, standard library only, built as a single `tattva`
 main.go       command dispatch and flags: new, revise, expand, status, next, done, list
 spec.go       Learning Spec types, Validate(), schema generation
 claude.go     the function that runs claude -p
+runlog.go     the per-command log in ~/.tattva/logs
 generate.go   design / revise / expand flow, repair, merging phases
 render.go     README and step markdown (templates built in)
 progress.go   appending to progress.jsonl, working out status
@@ -364,7 +366,7 @@ prompts/      design.md, expand.md (built in)
 `go test ./...` runs offline and never calls Claude.
 - **Validation:** one valid spec, plus one broken copy for each rule.
 - **Rendering:** `README.md` and one step file are compared against saved expected output.
-- **Adapter:** a fake `claude` script placed first on `PATH` records its arguments and stdin. It replies with canned JSON: a success, an error result, malformed output, or a hang (to test the timeout).
+- **Adapter:** a fake `claude` script placed first on `PATH` records its arguments and stdin. It replies with canned stream-json lines: a success with searches, a page read and a tool error, an error result, malformed output, or a hang (to test the timeout). The success case also checks what reaches the log and the terminal.
 - **Generation flow, using the fake:** phases merge; `expand` resumes only the missing phases; finished phases survive when one phase fails; repair runs at most once.
 - **Progress:** working out status, what `next` picks, edge cases for `done`, and skipping a half-written last line.
 - **Change detection:** an edited step file isn't overwritten; a `spec.json` edit that breaks a rule stops the command; a valid edit is accepted.

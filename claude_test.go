@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -16,10 +17,17 @@ printf '%s\0' "$@" > "$FAKE_DIR/args"
 cat > "$FAKE_DIR/stdin"
 pwd > "$FAKE_DIR/cwd"
 case "$FAKE_MODE" in
-ok) printf '%s' '{"type":"result","is_error":false,"result":"{}","structured_output":{"answer":42},"total_cost_usd":0.25}' ;;
-error) printf '%s' '{"type":"result","is_error":true,"result":"There is an issue with the selected model","total_cost_usd":0}'; exit 1 ;;
+ok) printf '%s\n' \
+  '{"type":"system","subtype":"init","model":"test-model","tools":["StructuredOutput","WebSearch","WebFetch"]}' \
+  '{"type":"assistant","message":{"content":[{"type":"text","text":"Looking up the spec."},{"type":"tool_use","name":"WebSearch","input":{"query":"parquet spec"}}]}}' \
+  '{"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"fetch failed: 404"}]}}' \
+  '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"WebFetch","input":{"url":"https://example.com/spec","prompt":"read it"}}]}}' \
+  '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}' \
+  '{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"answer":42},"total_cost_usd":0.25,"num_turns":3}'
+  echo "a warning from claude" >&2 ;;
+error) printf '%s\n' '{"type":"result","is_error":true,"result":"There is an issue with the selected model","total_cost_usd":0}'; exit 1 ;;
 garbage) echo "not json"; echo "segfault in module" >&2; exit 2 ;;
-empty) printf '%s' '{"type":"result","is_error":false,"result":"I could not comply","total_cost_usd":0.1}' ;;
+empty) printf '%s\n' '{"type":"result","is_error":false,"result":"I could not comply","total_cost_usd":0.1}' ;;
 hang) exec sleep 10 ;;
 esac
 `
@@ -59,7 +67,7 @@ func TestRunClaudeSuccess(t *testing.T) {
 		t.Fatalf("out=%s cost=%v", out, cost)
 	}
 	args := readFile(t, filepath.Join(rec, "args"))
-	for _, want := range []string{"-p", "--output-format\x00json", "--json-schema\x00{\"type\":\"object\"}",
+	for _, want := range []string{"-p", "--output-format\x00stream-json", "--verbose", "--json-schema\x00{\"type\":\"object\"}",
 		"--system-prompt\x00be precise", "--tools\x00WebSearch,WebFetch", "--allowedTools\x00WebSearch,WebFetch",
 		"--safe-mode", "--no-session-persistence", "--model\x00sonnet"} {
 		if !strings.Contains(args, want+"\x00") {
@@ -135,5 +143,41 @@ func TestRunClaudeInterrupted(t *testing.T) {
 	_, _, err := runClaude(ctx, call{Schema: []byte(`{}`)})
 	if err == nil || err.Error() != "interrupted" {
 		t.Fatalf("err = %v, want interrupted", err)
+	}
+}
+
+func TestRunClaudeLogsItsEvents(t *testing.T) {
+	installFakeClaude(t, "ok")
+	t.Setenv("HOME", t.TempDir())
+	var term bytes.Buffer
+	lg := openLog("test", &term)
+	if _, _, err := runClaude(context.Background(), call{Label: "design", Log: lg, Schema: []byte(`{}`), Web: true}); err != nil {
+		t.Fatal(err)
+	}
+	lg.Close(nil)
+	log := readFile(t, lg.Path)
+	for _, want := range []string{
+		"[design] calling claude: model default, web tools true",
+		"[design] session: model test-model, tools StructuredOutput, WebSearch, WebFetch",
+		"[design] claude: Looking up the spec.",
+		"[design] searching: parquet spec",
+		`[design] tool error: "fetch failed: 404"`,
+		"[design] reading: https://example.com/spec",
+		"[design] rate_limit_event: ",
+		"[design] stderr: a warning from claude",
+		"[design] finished in ",
+		": 3 turns, $0.25",
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("log missing %q:\n%s", want, log)
+		}
+	}
+	for _, want := range []string{"  log: " + lg.Path + "\n", "  [design] searching: parquet spec\n", "  [design] reading: https://example.com/spec\n"} {
+		if !strings.Contains(term.String(), want) {
+			t.Errorf("terminal missing %q:\n%s", want, term.String())
+		}
+	}
+	if strings.Contains(term.String(), "Looking up the spec.") {
+		t.Error("Claude's own text belongs in the log, not the terminal")
 	}
 }

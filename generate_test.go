@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -326,5 +327,82 @@ func TestExpandReportsARepair(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "repaired after the first draft broke these rules") || !strings.Contains(out.String(), "want exactly") {
 		t.Fatalf("out = %s", out.String())
+	}
+}
+
+// logPathIn finds the "log: <path>" line a command printed.
+func logPathIn(t *testing.T, out string) string {
+	t.Helper()
+	m := regexp.MustCompile(`log: (\S+\.log)`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("no log path in:\n%s", out)
+	}
+	return m[1]
+}
+
+func TestGenerateLogsTheRuleCheckAndRepair(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	calls := fakeClaude(t, func(_ context.Context, c call) (string, error) {
+		if c.System == repairPrompt {
+			return `{"ok":true}`, nil
+		}
+		return `{"ok":false}`, nil
+	})
+	var term bytes.Buffer
+	lg := openLog("test", &term)
+	_, _, _, err := generate(context.Background(), call{Label: "design", Log: lg, Schema: []byte(`{}`)}, func(out json.RawMessage) []string {
+		if string(out) == `{"ok":true}` {
+			return nil
+		}
+		return []string{"ok must be true"}
+	})
+	lg.Close(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := (*calls)[1]; r.Label != "design repair" || r.Log != lg {
+		t.Fatalf("repair call label=%q, shares the log=%v", r.Label, r.Log == lg)
+	}
+	log := readFile(t, lg.Path)
+	for _, want := range []string{"[design] the first draft broke 1 rule; asking Claude to repair it", "[design]   broke: ok must be true", "[design repair] rules: ok"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("log missing %q:\n%s", want, log)
+		}
+	}
+	if !strings.Contains(term.String(), "  [design] the first draft broke 1 rule; asking Claude to repair it\n") {
+		t.Errorf("the repair should show in the terminal:\n%s", term.String())
+	}
+}
+
+func TestNewWritesALog(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	fakeClaude(t, func(context.Context, call) (string, error) { return outlineOf(testSpec()), nil })
+	var out bytes.Buffer
+	if err := cmdNew(context.Background(), t.TempDir(), "Redis", "go", "", &out); err != nil {
+		t.Fatal(err)
+	}
+	log := readFile(t, logPathIn(t, out.String()))
+	for _, want := range []string{`tattva new "Redis" --lang go in `, "[design] rules: ok", "Mini Redis: 2 phases, 3 steps (", " done\n"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("log missing %q:\n%s", want, log)
+		}
+	}
+}
+
+func TestExpandLogsEachPhase(t *testing.T) {
+	p := newTestProject(t)
+	calls := fakeClaude(t, func(_ context.Context, c call) (string, error) { return phaseReply(c), nil })
+	var out bytes.Buffer
+	if err := cmdExpand(context.Background(), p, "", &out); err != nil {
+		t.Fatal(err)
+	}
+	if (*calls)[0].Label != "expand protocol" {
+		t.Errorf("call label = %q", (*calls)[0].Label)
+	}
+	log := readFile(t, logPathIn(t, out.String()))
+	for _, want := range []string{"tattva expand in ", "[expand protocol] rules: ok", "✓ phase protocol expanded"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("log missing %q:\n%s", want, log)
+		}
 	}
 }
