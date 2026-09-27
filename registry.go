@@ -356,45 +356,91 @@ func (p *Project) printNotices(out io.Writer) {
 	}
 }
 
+// projectView is one registered project as `tattva list` and the workspace
+// show it. Loading it never writes anything.
+type projectView struct {
+	N                  int // position in name order, from 1: the window number in the top bar
+	ID, Name, Slug     string
+	Target, Language   string
+	Done, Total, Hints int
+	Focus              string // "→ 08 Key expiry", "all done" or "no step in progress"
+	Problem            string // why the project can't be shown, or ""
+	root               string
+	spec               *Spec
+	events             []Event
+}
+
+// loadProjects reads every registered project, sorted by name, without
+// writing anything. The second result is a warning about the registry itself.
+func loadProjects() ([]projectView, string) {
+	reg, warn := loadRegistry()
+	entries := slices.Clone(reg.Projects)
+	slices.SortFunc(entries, func(a, b Entry) int { return strings.Compare(a.Name, b.Name) })
+	views := make([]projectView, 0, len(entries))
+	for i, e := range entries {
+		v := projectView{N: i + 1, ID: e.ID, Name: e.Name, Slug: slug(e.Name), root: e.Path}
+		v.Problem = v.load()
+		views = append(views, v)
+	}
+	return views, warn
+}
+
+// load fills v from its project folder, and returns why it couldn't, or "".
+func (v *projectView) load() string {
+	s, err := loadSpec(filepath.Join(v.root, filepath.FromSlash(specFile)))
+	if errors.Is(err, fs.ErrNotExist) {
+		return "missing: " + v.root
+	}
+	if err != nil {
+		return "can't read its spec: " + err.Error()
+	}
+	if errs, _ := Validate(s); len(errs) > 0 {
+		return "its spec breaks the curriculum rules; run `tattva status` in " + v.root + " for details"
+	}
+	events, _, err := readEvents(filepath.Join(v.root, filepath.FromSlash(progressFile)))
+	if err != nil {
+		return "can't read its progress: " + err.Error()
+	}
+	pr := progressOf(s, events)
+	v.Name, v.Slug = s.Project.Name, slug(s.Project.Name)
+	v.Target, v.Language = s.Project.Target, s.Project.Language
+	v.Done, v.Total = pr.Done, len(s.Steps)
+	for _, n := range pr.Hints {
+		v.Hints += n
+	}
+	v.Focus = focusOf(s, pr)
+	v.spec, v.events = s, events
+	return ""
+}
+
+// focusOf is what a project is up to.
+func focusOf(s *Spec, pr Progress) string {
+	if i := s.stepIndex(pr.Current); i >= 0 {
+		return "→ " + num(i) + " " + s.Steps[i].Title
+	}
+	if pr.Done == len(s.Steps) {
+		return "all done"
+	}
+	return "no step in progress"
+}
+
 // cmdList prints every registered project with its progress.
 func cmdList(out io.Writer) error {
-	reg, warn := loadRegistry()
+	projects, warn := loadProjects()
 	if warn != "" {
 		fmt.Fprintln(out, "note:", warn)
 	}
-	if len(reg.Projects) == 0 {
+	if len(projects) == 0 {
 		fmt.Fprintln(out, "No projects yet. Start one with `tattva new \"<target>\" --lang <lang>`.")
 		return nil
 	}
-	projects := slices.Clone(reg.Projects)
-	slices.SortFunc(projects, func(a, b Entry) int { return strings.Compare(a.Name, b.Name) })
-	for _, e := range projects {
-		s, err := loadSpec(filepath.Join(e.Path, filepath.FromSlash(specFile)))
-		if errors.Is(err, fs.ErrNotExist) {
-			fmt.Fprintf(out, "%s  (missing: %s)\n", e.Name, e.Path)
+	for _, v := range projects {
+		if v.Problem != "" {
+			fmt.Fprintf(out, "%s  (%s)\n", v.Name, v.Problem)
 			continue
-		}
-		if err != nil {
-			fmt.Fprintf(out, "%s  (can't read its spec: %v)\n", e.Name, err)
-			continue
-		}
-		if errs, _ := Validate(s); len(errs) > 0 {
-			fmt.Fprintf(out, "%s  (its spec breaks the curriculum rules; run `tattva status` in %s for details)\n", e.Name, e.Path)
-			continue
-		}
-		events, _, err := readEvents(filepath.Join(e.Path, filepath.FromSlash(progressFile)))
-		if err != nil {
-			return err
-		}
-		pr := progressOf(s, events)
-		current := "no step in progress"
-		if i := s.stepIndex(pr.Current); i >= 0 {
-			current = "→ " + num(i) + " " + s.Steps[i].Title
-		} else if pr.Done == len(s.Steps) {
-			current = "all done"
 		}
 		fmt.Fprintf(out, "%s  %d%%  %s  last activity %s  %s\n",
-			s.Project.Name, pr.Done*100/len(s.Steps), current, lastActivity(e.Path, events), e.Path)
+			v.Name, v.Done*100/v.Total, v.Focus, lastActivity(v.root, v.events), v.root)
 	}
 	return nil
 }

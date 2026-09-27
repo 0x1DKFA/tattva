@@ -1,0 +1,27 @@
+{{define "title"}}projects{{end}}
+{{define "main"}}
+<main class="tiles">
+{{- range .Projects}}
+{{- if .Problem}}
+  <section class="pane card missing">
+    <h2 class="pane-title">{{.N}}:{{.Slug}}</h2>
+    <p class="card-name">{{.Name}}</p>
+    <p class="note">{{.Problem}}</p>
+  </section>
+{{- else}}
+  <a class="pane card" href="/p/{{.ID}}">
+    <h2 class="pane-title">{{.N}}:{{.Slug}}</h2>
+    <p class="card-name">{{.Name}}</p>
+    <p class="card-meta">{{.Target}} · {{.Language}}</p>
+    <p><span class="card-bar">[{{progressBar .Done .Total}}]</span> {{.Done}}/{{.Total}}{{with hintNote .Hints}} · {{.}}{{end}}</p>
+    <p class="card-current">{{.Focus}}</p>
+  </a>
+{{- end}}
+{{- else}}
+  <section class="pane card">
+    <h2 class="pane-title">0:projects</h2>
+    <p>No projects yet. In a new folder, run <code>tattva new "&lt;target&gt;" --lang &lt;lang&gt;</code>.</p>
+  </section>
+{{- end}}
+</main>
+{{end}}

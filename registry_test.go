@@ -280,6 +280,20 @@ func TestListSurvivesASpecThatBreaksTheRules(t *testing.T) {
 	}
 }
 
+func TestListSurvivesAnUnreadableProgressFile(t *testing.T) {
+	p := newTestProject(t)
+	if err := os.Mkdir(p.abs(progressFile), 0o755); err != nil { // a directory can't be read as a file
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if err := cmdList(&out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "Mini Redis  (can't read its progress: ") {
+		t.Fatalf("out = %s", out.String())
+	}
+}
+
 // Each goroutine opens its own lock file, the way separate tattva processes
 // in different projects would.
 func TestConcurrentSavesKeepEveryEntry(t *testing.T) {

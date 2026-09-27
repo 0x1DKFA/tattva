@@ -22,6 +22,7 @@ Usage:
   tattva done [step]                                  complete a step
   tattva status                                       show progress
   tattva list                                         list your projects
+  tattva serve [--port <n>]                           read and track in your browser
 `
 
 func main() {
@@ -132,6 +133,17 @@ func run(ctx context.Context, dir string, args []string, out io.Writer) error {
 			return errors.New("usage: tattva list")
 		}
 		return cmdList(out)
+	case "serve":
+		fs := newFlags(cmd)
+		port := fs.Int("port", 4747, "port to listen on")
+		pos, err := parseArgs(fs, args)
+		if err != nil {
+			return err
+		}
+		if len(pos) != 0 {
+			return errors.New("usage: tattva serve [--port <n>]")
+		}
+		return cmdServe(ctx, *port, out)
 	default:
 		return fmt.Errorf("unknown command %q (run `tattva help`)", cmd)
 	}
