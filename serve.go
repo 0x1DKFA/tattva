@@ -9,8 +9,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os/exec"
+	"path"
 	"runtime"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -51,6 +55,8 @@ func newServer(port int) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServerFS(staticFiles)))
 	mux.HandleFunc("GET /{$}", handleHome)
+	mux.HandleFunc("GET /p/{id}", handleProject)
+	mux.HandleFunc("GET /p/{id}/s/{n}", handleProject)
 	return onlyLocal(port, secure(http.NewCrossOriginProtection().Handler(mux)))
 }
 
@@ -85,7 +91,11 @@ func secure(next http.Handler) http.Handler {
 // pageView is what every page template receives.
 type pageView struct {
 	Projects []projectView
-	Current  *projectView // the project being shown; nil on the landing page
+	Current  *projectView  // the project being shown; nil on the landing page
+	Phases   []phaseNav    // project page: the steps pane
+	Overview *overviewPage // project page showing the overview
+	Step     *stepPage     // project page showing a step
+	Problem  string        // project page for a project that can't be shown
 }
 
 // IsCurrent reports whether id is the project being shown.
@@ -97,6 +107,7 @@ var pageFuncs = template.FuncMap{
 	"hintNote":    hintNote,
 	"progressBar": progressBar,
 	"themes":      func() []string { return themes },
+	"safeURL":     safeURL,
 }
 
 // page parses the page frame together with one page's template.
@@ -106,6 +117,7 @@ func page(name string) *template.Template {
 }
 
 var homePage = page("home.html")
+var projectPage = page("project.html")
 
 // show renders a page, or a plain error if the template fails.
 func show(w http.ResponseWriter, t *template.Template, v pageView) {
@@ -149,4 +161,132 @@ func progressBar(done, total int) string {
 		full = done * cells / total
 	}
 	return strings.Repeat("█", full) + strings.Repeat("░", cells-full)
+}
+
+// phaseNav is one phase in the steps pane.
+type phaseNav struct {
+	Title string
+	Steps []stepNav
+}
+
+// stepNav is one step in the steps pane.
+type stepNav struct {
+	N                  int
+	Num, Title         string
+	Status, Mark       string
+	Hints              string // "2 hints", or ""
+	Expanded, Selected bool
+}
+
+// overviewPage is the curriculum README view.
+type overviewPage struct {
+	*Spec
+	Contract string
+}
+
+// stepPage is the step view: what the step's markdown file shows, plus the
+// workspace's buttons and hint state.
+type stepPage struct {
+	stepView
+	File       string // "08-key-expiry.md", the pane title
+	Base       string // "/p/<id>/s/8", where the buttons post
+	Status     string // done, in-progress, available or locked
+	Missing    string // prerequisites that aren't done, by number
+	Reveal     []hintItem
+	References []Reference
+}
+
+// hintItem is one hint and whether it's open.
+type hintItem struct {
+	Level          int
+	Label, Text    string
+	Revealed, Next bool // Next: the one hint that can be opened now
+}
+
+var statusNames = map[Status]string{Done: "done", InProgress: "in-progress", Available: "available", Locked: "locked"}
+
+// handleProject shows a project: its overview, or step n.
+func handleProject(w http.ResponseWriter, r *http.Request) {
+	projects, _ := loadProjects()
+	i := slices.IndexFunc(projects, func(p projectView) bool { return p.ID == r.PathValue("id") })
+	if i < 0 {
+		http.NotFound(w, r)
+		return
+	}
+	cur := &projects[i]
+	v := pageView{Projects: projects, Current: cur}
+	if cur.Problem != "" {
+		v.Problem = cur.Problem
+		show(w, projectPage, v)
+		return
+	}
+	s := cur.spec
+	pr := progressOf(s, cur.events)
+	selected := -1
+	if n := r.PathValue("n"); n != "" {
+		k, err := strconv.Atoi(n)
+		if err != nil || k < 1 || k > len(s.Steps) || s.Steps[k-1].Detail == nil {
+			http.NotFound(w, r)
+			return
+		}
+		selected = k - 1
+		v.Step = newStepPage(cur.ID, s, pr, selected)
+	} else {
+		v.Overview = &overviewPage{Spec: s, Contract: contract(s.Program)}
+	}
+	v.Phases = phaseNavs(s, pr, selected)
+	show(w, projectPage, v)
+}
+
+// phaseNavs builds the steps pane: each phase with its steps and progress.
+func phaseNavs(s *Spec, pr Progress, selected int) []phaseNav {
+	var navs []phaseNav
+	for _, ph := range s.Phases {
+		n := phaseNav{Title: ph.Title}
+		for i, st := range s.Steps {
+			if st.Phase != ph.ID {
+				continue
+			}
+			n.Steps = append(n.Steps, stepNav{
+				N: i + 1, Num: num(i), Title: st.Title,
+				Status: statusNames[pr.Status[st.ID]], Mark: marks[pr.Status[st.ID]],
+				Hints: hintNote(pr.Hints[st.ID]), Expanded: st.Detail != nil, Selected: i == selected,
+			})
+		}
+		navs = append(navs, n)
+	}
+	return navs
+}
+
+// newStepPage is the step view for step i of project id.
+func newStepPage(id string, s *Spec, pr Progress, i int) *stepPage {
+	st := s.Steps[i]
+	v := &stepPage{
+		stepView:   stepViewOf(s, i),
+		File:       path.Base(stepFile(i, st.ID)),
+		Base:       fmt.Sprintf("/p/%s/s/%d", id, i+1),
+		Status:     statusNames[pr.Status[st.ID]],
+		References: s.References,
+	}
+	var missing []string
+	for _, pre := range st.Prerequisites {
+		if pr.Status[pre] != Done {
+			missing = append(missing, num(s.stepIndex(pre)))
+		}
+	}
+	v.Missing = strings.Join(missing, ", ")
+	opened := pr.Hints[st.ID]
+	for hi, h := range v.Hints {
+		level := hi + 1
+		v.Reveal = append(v.Reveal, hintItem{Level: level, Label: h.Label, Text: h.Text,
+			Revealed: level <= opened, Next: level == opened+1})
+	}
+	return v
+}
+
+// safeURL reports whether u is an http or https link, the only kind the
+// workspace turns into a link.
+func safeURL(u string) bool {
+	p, err := url.Parse(u)
+	return err == nil && (p.Scheme == "http" || p.Scheme == "https")
 }

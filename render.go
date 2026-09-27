@@ -62,7 +62,11 @@ func renderReadme(s *Spec) []byte {
 }
 
 // renderStep returns the markdown file for step i, which must be expanded.
-func renderStep(s *Spec, i int) []byte {
+func renderStep(s *Spec, i int) []byte { return execute("step.md.tmpl", stepViewOf(s, i)) }
+
+// stepViewOf gathers what both the step's markdown file and the workspace
+// show for step i, which must be expanded.
+func stepViewOf(s *Spec, i int) stepView {
 	st := s.Steps[i]
 	v := stepView{Num: num(i), Step: st, After: s.prereqNums(st)}
 	for pi, ph := range s.Phases {
@@ -86,7 +90,7 @@ func renderStep(s *Spec, i int) []byte {
 			}
 		}
 	}
-	return execute("step.md.tmpl", v)
+	return v
 }
 
 func execute(name string, data any) []byte {

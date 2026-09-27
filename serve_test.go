@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -168,5 +169,93 @@ func TestServeStopsWhenCancelled(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("serve didn't stop after cancel")
+	}
+}
+
+func TestProjectOverview(t *testing.T) {
+	p := newTestProject(t)
+	body := request(t, "GET", "/p/"+p.Spec.Project.ID, nil).Body.String()
+	for _, want := range []string{
+		`<h2 class="pane-title">README.md</h2>`, `class="nav-item selected"`, "▸ overview",
+		"<h1>Mini Redis</h1>", "not needed to learn the protocol", "Redis is a single-threaded event-loop server.",
+		`<pre class="mermaid" data-source="flowchart LR`,
+		`<a href="https://redis.io/docs/latest/develop/reference/protocol-spec/"`,
+		`<script src="/static/mermaid.min.js"></script>`,
+		"1:mini-redis*", "0/3 ✓",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("overview missing %q", want)
+		}
+	}
+}
+
+func TestProjectStepPage(t *testing.T) {
+	p := newTestProject(t)
+	body := request(t, "GET", "/p/"+p.Spec.Project.ID+"/s/1", nil).Body.String()
+	for _, want := range []string{
+		`<h2 class="pane-title">01-create-run-script.md</h2>`, "01 · Create run.sh", "phase 1: Setup",
+		"[ start step ]", "[ mark done ]", "[ show hint 1 ]", "opens after the hint above",
+		"machine checks (run by the verifier)", "<strong>accepts a connection</strong>",
+		"Forgetting to make run.sh executable.", "What happens if two programs listen on the same port?",
+		"02 · Respond to PING",
+		`class="nav-item status-available selected"`, `<span class="nav-item status-locked unexpanded"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("step page missing %q", want)
+		}
+	}
+	if strings.Contains(body, "Servers listen, then accept.") {
+		t.Error("hint 1 must stay closed until it's opened")
+	}
+}
+
+func TestProjectShowsOpenedHints(t *testing.T) {
+	p := newTestProject(t)
+	if err := p.appendEvent(Event{Step: "create-run-script", Event: "hint", Level: 1}); err != nil {
+		t.Fatal(err)
+	}
+	body := request(t, "GET", "/p/"+p.Spec.Project.ID+"/s/1", nil).Body.String()
+	if !strings.Contains(body, "Servers listen, then accept.") || !strings.Contains(body, "[ show hint 2 ]") || strings.Contains(body, "[ show hint 1 ]") {
+		t.Fatalf("hint state wrong:\n%s", body)
+	}
+	if !strings.Contains(body, `<span class="hint-count">1 hint</span>`) {
+		t.Error("the steps pane should show the hint count")
+	}
+}
+
+func TestProjectEscapesClaudeContent(t *testing.T) {
+	p := newTestProject(t)
+	p.Spec.Steps[0].Title = `<img src=x onerror=alert(1)>`
+	p.Spec.Steps[0].Detail.Task = "Build it. <script>alert(1)</script>"
+	p.Spec.References = append(p.Spec.References, Reference{Title: "evil", URL: "javascript:alert(1)"})
+	if err := p.saveSpec(); err != nil {
+		t.Fatal(err)
+	}
+	body := request(t, "GET", "/p/"+p.Spec.Project.ID+"/s/1", nil).Body.String()
+	for _, bad := range []string{"<script>alert", "<img src=x", `href="javascript:`} {
+		if strings.Contains(body, bad) {
+			t.Errorf("unsafe %q reached the page", bad)
+		}
+	}
+}
+
+func TestProjectNotFound(t *testing.T) {
+	p := newTestProject(t)
+	id := p.Spec.Project.ID
+	for _, path := range []string{"/p/nope", "/p/" + id + "/s/2", "/p/" + id + "/s/9", "/p/" + id + "/s/x"} {
+		if code := request(t, "GET", path, nil).Code; code != 404 {
+			t.Errorf("%s: status %d, want 404", path, code)
+		}
+	}
+}
+
+func TestProjectWithBrokenSpecShowsTheError(t *testing.T) {
+	p := newTestProject(t)
+	if err := os.WriteFile(p.abs(specFile), []byte(`{"schema_version": 1,`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rec := request(t, "GET", "/p/"+p.Spec.Project.ID, nil)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "can&#39;t read its spec") {
+		t.Fatalf("status %d:\n%s", rec.Code, rec.Body.String())
 	}
 }

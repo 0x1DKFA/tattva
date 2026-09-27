@@ -1,0 +1,121 @@
+{{define "title"}}{{.Current.Slug}}{{end}}
+{{define "main"}}
+<main class="panes" id="panes">
+  <nav class="pane steps" aria-label="Steps">
+    <h2 class="pane-title">steps</h2>
+    <div class="pane-body">
+      <a class="nav-item{{if .Overview}} selected{{end}}" href="/p/{{.Current.ID}}"{{if .Overview}} aria-current="page"{{end}}>▸ overview</a>
+      {{- range .Phases}}
+      <p class="phase">{{.Title}}</p>
+      {{- range .Steps}}
+      {{- if .Expanded}}
+      <a class="nav-item status-{{.Status}}{{if .Selected}} selected{{end}}" href="/p/{{$.Current.ID}}/s/{{.N}}"{{if .Selected}} aria-current="page"{{end}}><span class="mark">{{.Mark}}</span> {{.Num}} {{.Title}}{{with .Hints}} <span class="hint-count">{{.}}</span>{{end}}</a>
+      {{- else}}
+      <span class="nav-item status-{{.Status}} unexpanded" title="Not expanded yet: run tattva expand"><span class="mark">{{.Mark}}</span> {{.Num}} {{.Title}}</span>
+      {{- end}}
+      {{- end}}
+      {{- end}}
+    </div>
+  </nav>
+  <div class="divider" id="divider" role="separator" aria-orientation="vertical" aria-label="Resize the steps pane" tabindex="0"></div>
+  <article class="pane content">
+  {{- if .Problem}}
+    <h2 class="pane-title">error</h2>
+    <div class="pane-body"><p class="note">{{.Problem}}</p></div>
+  {{- else if .Overview}}{{template "overview" .Overview}}
+  {{- else}}{{template "step" .}}
+  {{- end}}
+  </article>
+</main>
+{{end}}
+
+{{define "references"}}{{if .}}
+<h2>references</h2>
+<ul>
+{{- range .}}
+  <li>{{if safeURL .URL}}<a href="{{.URL}}" target="_blank" rel="noopener noreferrer">{{.Title}}</a> ↗{{else}}{{.Title}} <span class="dim">({{.URL}})</span>{{end}}</li>
+{{- end}}
+</ul>
+{{- end}}{{end}}
+
+{{define "overview"}}
+<h2 class="pane-title">README.md</h2>
+<div class="pane-body md">
+<h1>{{.Project.Name}}</h1>
+{{markdown .Project.Summary}}
+<p class="meta">target: {{.Project.Target}} · language: {{.Project.Language}}</p>
+<h2>what this curriculum assumes</h2>
+<ul>{{range .Project.Assumes}}<li>{{.}}</li>{{end}}</ul>
+<h2>scope</h2>
+<p>in scope:</p>
+<ul>{{range .Scope.In}}<li>{{.}}</li>{{end}}</ul>
+<p>left out:</p>
+<ul>{{range .Scope.Out}}<li><strong>{{.Feature}}</strong>: {{.Why}}</li>{{end}}</ul>
+<h2>how the real system is built</h2>
+{{markdown .Architecture.Real}}
+<h2>what you'll build</h2>
+<ul>{{range .Architecture.Components}}<li><strong>{{.ID}}</strong>: {{.Responsibility}}{{with .TalksTo}} (talks to {{join . ", "}}){{end}}</li>{{end}}</ul>
+<pre class="mermaid" data-source="{{.Architecture.Diagram}}">{{.Architecture.Diagram}}</pre>
+<h2>program contract</h2>
+{{markdown .Contract}}
+<h2>concepts</h2>
+<ul>{{range .Concepts}}<li><strong>{{.Name}}</strong> (<code>{{.ID}}</code>): {{.Summary}}</li>{{end}}</ul>
+{{template "references" .References}}
+</div>
+<script src="/static/mermaid.min.js"></script>
+{{end}}
+
+{{define "step"}}{{with .Step}}
+<h2 class="pane-title">{{.File}}</h2>
+<div class="pane-body md">
+<h1>{{.Num}} · {{.Step.Title}}</h1>
+<p class="meta">phase {{.PhaseNum}}: {{.PhaseTitle}} · concepts: {{join .Step.Concepts ", "}}{{with .After}} · after: {{.}}{{end}}</p>
+<form class="actions" method="post">
+  {{- if eq .Status "available"}}<button formaction="{{.Base}}/start">[ start step ]</button>{{end}}
+  {{- if eq .Status "done"}}<span class="done-note">✓ done</span>{{else}}<button formaction="{{.Base}}/done">[ mark done ]</button>{{end}}
+  {{- if and .Missing (ne .Status "done")}}<span class="note">prerequisites {{.Missing}} aren't done yet</span>{{end}}
+</form>
+<h2>goal</h2>
+{{markdown .Step.Goal}}
+<h2>why</h2>
+{{markdown .Step.Detail.Why}}
+<h2>context</h2>
+{{markdown .Step.Detail.Context}}
+<h2>your task</h2>
+{{markdown .Step.Detail.Task}}
+{{- with .Step.Detail.Constraints}}
+<h2>constraints</h2>
+<ul>{{range .}}<li>{{markdown .}}</li>{{end}}</ul>
+{{- end}}
+<h2>check it</h2>
+{{markdown .Step.Detail.ByHand}}
+<p><strong>expected outcome:</strong> {{.Step.Detail.ExpectedOutcome}}</p>
+{{- with .Checks}}
+<details class="checks"><summary>machine checks (run by the verifier)</summary>
+<ul>{{range .}}<li>{{markdown .}}</li>{{end}}</ul>
+</details>
+{{- end}}
+<h2 id="hints">hints</h2>
+{{- range .Reveal}}
+<section class="hint">
+<h3>{{.Label}}</h3>
+{{- if .Revealed}}
+{{markdown .Text}}
+{{- else if .Next}}
+<form method="post" action="{{$.Step.Base}}/hint"><input type="hidden" name="level" value="{{.Level}}"><button>[ show hint {{.Level}} ]</button></form>
+{{- else}}
+<p class="dim">opens after the hint above</p>
+{{- end}}
+</section>
+{{- end}}
+<h2>common mistakes</h2>
+<ul>{{range .Step.Detail.CommonMistakes}}<li>{{markdown .}}</li>{{end}}</ul>
+<h2>reflect</h2>
+{{markdown .Step.Detail.Reflection}}
+{{- with .Unlocks}}
+<h2>unlocks</h2>
+<ul>{{range .}}<li>{{.}}</li>{{end}}</ul>
+{{- end}}
+{{template "references" .References}}
+</div>
+{{end}}{{end}}
