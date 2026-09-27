@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -257,5 +258,106 @@ func TestProjectWithBrokenSpecShowsTheError(t *testing.T) {
 	rec := request(t, "GET", "/p/"+p.Spec.Project.ID, nil)
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "can&#39;t read its spec") {
 		t.Fatalf("status %d:\n%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestActionsStartAndDone(t *testing.T) {
+	p := newTestProject(t)
+	base := "/p/" + p.Spec.Project.ID + "/s/1"
+	for _, action := range []string{"start", "start", "done", "done"} {
+		rec := request(t, "POST", base+"/"+action, url.Values{})
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != base {
+			t.Fatalf("%s: status %d, location %q", action, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+	events, _, err := readEvents(p.abs(progressFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []string
+	for _, ev := range events {
+		kinds = append(kinds, ev.Event)
+	}
+	if strings.Join(kinds, ",") != "started,completed" {
+		t.Fatalf("events = %v; repeated clicks must add nothing", kinds)
+	}
+}
+
+func TestActionsOpenHintsInOrder(t *testing.T) {
+	p := newTestProject(t)
+	base := "/p/" + p.Spec.Project.ID + "/s/1"
+	for _, level := range []string{"2", "1", "1", "3", "2", "3", "4", "x"} {
+		rec := request(t, "POST", base+"/hint", url.Values{"level": {level}})
+		if rec.Code != http.StatusSeeOther || rec.Header().Get("Location") != base+"#hints" {
+			t.Fatalf("hint %s: status %d, location %q", level, rec.Code, rec.Header().Get("Location"))
+		}
+	}
+	events, _, _ := readEvents(p.abs(progressFile))
+	var levels []int
+	for _, ev := range events {
+		levels = append(levels, ev.Level)
+	}
+	if fmt.Sprint(levels) != "[1 2 3]" {
+		t.Fatalf("hint levels recorded = %v, want [1 2 3]", levels)
+	}
+}
+
+func TestActionsRejectUnknownTargets(t *testing.T) {
+	p := newTestProject(t)
+	id := p.Spec.Project.ID
+	for _, path := range []string{"/p/nope/s/1/start", "/p/" + id + "/s/2/start", "/p/" + id + "/s/9/done", "/p/" + id + "/s/1/explode"} {
+		if code := request(t, "POST", path, url.Values{}).Code; code != 404 {
+			t.Errorf("%s: status %d, want 404", path, code)
+		}
+	}
+	if _, err := os.Stat(p.abs(progressFile)); err == nil {
+		t.Error("a rejected action must not write progress")
+	}
+}
+
+func TestViewingPagesWritesNothing(t *testing.T) {
+	p := newTestProject(t)
+	if err := cmdNext(p, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := registryPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := []string{reg, p.abs(specFile), p.abs(progressFile), p.abs(readmeFile)}
+	before := map[string]string{}
+	for _, f := range files {
+		before[f] = readFile(t, f)
+	}
+	for _, path := range []string{"/", "/p/" + p.Spec.Project.ID, "/p/" + p.Spec.Project.ID + "/s/1", "/static/app.css"} {
+		if code := request(t, "GET", path, nil).Code; code != 200 {
+			t.Fatalf("%s: status %d", path, code)
+		}
+	}
+	for _, f := range files {
+		if readFile(t, f) != before[f] {
+			t.Errorf("viewing pages changed %s", f)
+		}
+	}
+}
+
+func TestActionsAgreeWithTheCLI(t *testing.T) {
+	p := newTestProject(t)
+	base := "/p/" + p.Spec.Project.ID + "/s/1"
+	request(t, "POST", base+"/hint", url.Values{"level": {"1"}})
+	request(t, "POST", base+"/done", url.Values{})
+	q, err := openProject(p.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsAny(q.notices, "edited outside tattva") {
+		t.Fatalf("the workspace's writes must not look like outside edits: %q", q.notices)
+	}
+	var out bytes.Buffer
+	if err := cmdStatus(q, &out); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "✓ 01 Create run.sh (1 hint)") {
+		t.Fatalf("status = %s", out.String())
 	}
 }

@@ -57,6 +57,7 @@ func newServer(port int) http.Handler {
 	mux.HandleFunc("GET /{$}", handleHome)
 	mux.HandleFunc("GET /p/{id}", handleProject)
 	mux.HandleFunc("GET /p/{id}/s/{n}", handleProject)
+	mux.HandleFunc("POST /p/{id}/s/{n}/{action}", handleAction)
 	return onlyLocal(port, secure(http.NewCrossOriginProtection().Handler(mux)))
 }
 
@@ -289,4 +290,56 @@ func newStepPage(id string, s *Spec, pr Progress, i int) *stepPage {
 func safeURL(u string) bool {
 	p, err := url.Parse(u)
 	return err == nil && (p.Scheme == "http" || p.Scheme == "https")
+}
+
+// handleAction runs one of a step's buttons (start, done or hint) and sends
+// the browser back to the step, so reloading doesn't post again.
+func handleAction(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	reg, _ := loadRegistry()
+	i := slices.IndexFunc(reg.Projects, func(e Entry) bool { return e.ID == id })
+	if i < 0 {
+		http.NotFound(w, r)
+		return
+	}
+	p, err := openProject(reg.Projects[i].Path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	n, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil || p.Spec.Project.ID != id || n < 1 || n > len(p.Spec.Steps) || p.Spec.Steps[n-1].Detail == nil {
+		http.NotFound(w, r)
+		return
+	}
+	st := p.Spec.Steps[n-1]
+	pr, err := p.progress()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	back := fmt.Sprintf("/p/%s/s/%d", id, n)
+	switch r.PathValue("action") {
+	case "start":
+		if pr.Status[st.ID] == Available {
+			err = p.appendEvent(Event{Step: st.ID, Event: "started"})
+		}
+	case "done":
+		if pr.Status[st.ID] != Done {
+			err = p.appendEvent(Event{Step: st.ID, Event: "completed"})
+		}
+	case "hint":
+		back += "#hints"
+		if level, _ := strconv.Atoi(r.FormValue("level")); level == pr.Hints[st.ID]+1 && level <= len(st.Detail.Hints) {
+			err = p.appendEvent(Event{Step: st.ID, Event: "hint", Level: level})
+		}
+	default:
+		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, back, http.StatusSeeOther)
 }
