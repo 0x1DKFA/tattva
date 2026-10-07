@@ -15,15 +15,33 @@ import (
 	"time"
 )
 
-// call is one headless Claude Code invocation.
+// call is one headless generator invocation.
 type call struct {
-	System string  // system prompt, replacing Claude Code's default
-	Prompt string  // sent on stdin
-	Schema []byte  // JSON Schema the output must match
-	Web    bool    // allow WebSearch and WebFetch
-	Model  string  // empty means Claude Code's default
-	Label  string  // names the call in the log, like "design" or "expand storage"
-	Log    *runLog // nil logs nothing
+	Provider string  // "claude" or "codex"; empty means Claude
+	System   string  // system instructions
+	Prompt   string  // request sent on stdin
+	Schema   []byte  // JSON Schema the output must match
+	Web      bool    // allow web search
+	Model    string  // empty means the selected CLI's default
+	Label    string  // names the call in the log, like "design" or "expand storage"
+	Log      *runLog // nil logs nothing
+}
+
+func runGeneration(ctx context.Context, c call) (json.RawMessage, float64, error) {
+	if c.Provider == "" || c.Provider == "claude" {
+		return claude(ctx, c)
+	}
+	if c.Provider == "codex" {
+		return runCodex(ctx, c)
+	}
+	return nil, 0, fmt.Errorf("unknown provider %q (choose claude or codex)", c.Provider)
+}
+
+func checkProvider(provider string) error {
+	if provider != "claude" && provider != "codex" {
+		return fmt.Errorf("unknown provider %q (choose claude or codex)", provider)
+	}
+	return nil
 }
 
 // callTimeout bounds one call. It's a var so tests can shorten it.

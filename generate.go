@@ -24,21 +24,21 @@ const repairPrompt = `You repair JSON answers that failed validation. You receiv
 // claude runs one call. It's a var so tests can swap in a fake.
 var claude = runClaude
 
-// invalidOutput is Claude output that still broke the rules after one repair.
+// invalidOutput is output that still broke the rules after one repair.
 type invalidOutput struct {
 	Output json.RawMessage
 	Errors []string
 }
 
 func (e *invalidOutput) Error() string {
-	return "Claude's output broke the curriculum rules even after a repair:\n  " + strings.Join(e.Errors, "\n  ")
+	return "generated output broke the curriculum rules even after a repair:\n  " + strings.Join(e.Errors, "\n  ")
 }
 
 // generate makes a call, checks the output, and makes at most one repair
 // call. It returns the accepted output, the total cost, and the rules the
 // first draft broke when a repair was needed.
 func generate(ctx context.Context, c call, check func(json.RawMessage) []string) (json.RawMessage, float64, []string, error) {
-	out, cost, err := claude(ctx, c)
+	out, cost, err := runGeneration(ctx, c)
 	if err != nil {
 		return nil, cost, nil, err
 	}
@@ -51,14 +51,14 @@ func generate(ctx context.Context, c call, check func(json.RawMessage) []string)
 	if len(errs) == 1 {
 		rules = "rule"
 	}
-	c.Log.Show("  [%s] the first draft broke %d %s; asking Claude to repair it", c.Label, len(errs), rules)
+	c.Log.Show("  [%s] the first draft broke %d %s; asking the selected provider to repair it", c.Label, len(errs), rules)
 	for _, e := range errs {
 		c.Log.Printf("[%s]   broke: %s", c.Label, e)
 	}
 	prompt := "The answer below breaks these rules:\n- " + strings.Join(errs, "\n- ") +
 		"\n\nOriginal request:\n" + c.Prompt + "\n\nAnswer:\n" + string(out)
-	r := call{System: repairPrompt, Prompt: prompt, Schema: c.Schema, Model: c.Model, Label: c.Label + " repair", Log: c.Log}
-	fixed, more, err := claude(ctx, r)
+	r := call{Provider: c.Provider, System: repairPrompt, Prompt: prompt, Schema: c.Schema, Model: c.Model, Label: c.Label + " repair", Log: c.Log}
+	fixed, more, err := runGeneration(ctx, r)
 	cost += more
 	if err != nil {
 		return nil, cost, errs, err
@@ -102,7 +102,7 @@ func withSavedOutput(root, name string, err error) error {
 	return fmt.Errorf("%w\nThe output is saved in %s", err, path)
 }
 
-// specFromOutline turns an outline from Claude into a spec with tattva's own
+// specFromOutline turns an outline from the selected provider into a spec with tattva's own
 // fields set, and returns the rules it breaks.
 func specFromOutline(out json.RawMessage, id, target, lang string) (*Spec, []string) {
 	var s Spec
@@ -146,7 +146,7 @@ func designOutline(ctx context.Context, c call, id, target, lang string) (*Spec,
 }
 
 // cmdNew designs a new curriculum in dir.
-func cmdNew(ctx context.Context, dir, target, lang, model string, out io.Writer) (err error) {
+func cmdNew(ctx context.Context, dir, target, lang, model, provider string, out io.Writer) (err error) {
 	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(specFile))); err == nil {
 		return fmt.Errorf("%s already exists here; use `tattva revise` to change it", specFile)
 	}
@@ -154,9 +154,9 @@ func cmdNew(ctx context.Context, dir, target, lang, model string, out io.Writer)
 	fmt.Fprintln(out, "Designing the curriculum. This usually takes a few minutes…")
 	lg := openLog("new", out)
 	defer func() { lg.Close(err) }()
-	lg.Printf("tattva new %q --lang %s in %s", target, lang, dir)
+	lg.Printf("tattva new %q --lang %s --provider %s in %s", target, lang, provider, dir)
 	prompt := fmt.Sprintf("Target: %s\nLanguage: %s\n", target, lang)
-	s, cost, broken, err := designOutline(ctx, call{Prompt: prompt, Model: model, Label: "design", Log: lg}, newUUID(), target, lang)
+	s, cost, broken, err := designOutline(ctx, call{Provider: provider, Prompt: prompt, Model: model, Label: "design", Log: lg}, newUUID(), target, lang)
 	if err != nil {
 		return withSavedOutput(dir, "design", err)
 	}
@@ -176,7 +176,7 @@ func cmdNew(ctx context.Context, dir, target, lang, model string, out io.Writer)
 }
 
 // cmdRevise rewrites the outline from the current one plus feedback.
-func cmdRevise(ctx context.Context, p *Project, feedback string, force bool, model string, out io.Writer) (err error) {
+func cmdRevise(ctx context.Context, p *Project, feedback string, force bool, model, provider string, out io.Writer) (err error) {
 	expanded := false
 	for _, st := range p.Spec.Steps {
 		expanded = expanded || st.Detail != nil
@@ -188,11 +188,11 @@ func cmdRevise(ctx context.Context, p *Project, feedback string, force bool, mod
 	fmt.Fprintln(out, "Revising the curriculum. This usually takes a few minutes…")
 	lg := openLog("revise", out)
 	defer func() { lg.Close(err) }()
-	lg.Printf("tattva revise %q in %s", feedback, p.Root)
+	lg.Printf("tattva revise %q --provider %s in %s", feedback, provider, p.Root)
 	info := p.Spec.Project
 	prompt := fmt.Sprintf("Target: %s\nLanguage: %s\n\nCurrent outline:\n%s\nRevise the outline according to this feedback:\n%s\n",
 		info.Target, info.Language, outlineOf(p.Spec), feedback)
-	s, cost, broken, err := designOutline(ctx, call{Prompt: prompt, Model: model, Label: "revise", Log: lg}, info.ID, info.Target, info.Language)
+	s, cost, broken, err := designOutline(ctx, call{Provider: provider, Prompt: prompt, Model: model, Label: "revise", Log: lg}, info.ID, info.Target, info.Language)
 	if err != nil {
 		return withSavedOutput(p.Root, "revise", err)
 	}
@@ -215,7 +215,7 @@ func cmdRevise(ctx context.Context, p *Project, feedback string, force bool, mod
 // summarize shows what a design or revise call produced.
 func summarize(p *Project, took time.Duration, cost float64, broken []string, lg *runLog) {
 	s := p.Spec
-	lg.Show("%s: %d phases, %d steps (%s, $%.2f)", s.Project.Name, len(s.Phases), len(s.Steps), took.Round(time.Second), cost)
+	lg.Show("%s: %d phases, %d steps (%s, %s)", s.Project.Name, len(s.Phases), len(s.Steps), took.Round(time.Second), costLabel(cost))
 	showRepairs(lg, broken)
 	for pi, ph := range s.Phases {
 		lg.Show("  Phase %d · %s", pi+1, ph.Title)
@@ -282,7 +282,7 @@ func (p *Project) mergePhase(out json.RawMessage) error {
 
 // cmdExpand fills in every unexpanded step, with one call per phase and a few
 // phases at a time. Each phase is saved as soon as it finishes.
-func cmdExpand(ctx context.Context, p *Project, model string, out io.Writer) (err error) {
+func cmdExpand(ctx context.Context, p *Project, model, provider string, out io.Writer) (err error) {
 	type job struct {
 		phase string
 		ids   []string
@@ -308,7 +308,7 @@ func cmdExpand(ctx context.Context, p *Project, model string, out io.Writer) (er
 	fmt.Fprintf(out, "Expanding %d phases, %d at a time. Each takes a few minutes…\n", len(jobs), expandConcurrency)
 	lg := openLog("expand", out)
 	defer func() { lg.Close(err) }()
-	lg.Printf("tattva expand in %s", p.Root)
+	lg.Printf("tattva expand --provider %s in %s", provider, p.Root)
 	outline, lang, kind := outlineOf(p.Spec), p.Spec.Project.Language, p.Spec.Program.Kind
 	var (
 		mu     sync.Mutex
@@ -327,7 +327,7 @@ func cmdExpand(ctx context.Context, p *Project, model string, out io.Writer) (er
 			began := time.Now()
 			prompt := fmt.Sprintf("Language: %s\n\nFull outline:\n%s\nPhase to expand: %s\nFill in detail for exactly these step ids, in this order: %s\n",
 				lang, outline, j.phase, strings.Join(j.ids, ", "))
-			c := call{System: expandPrompt, Prompt: prompt, Schema: phaseSchema, Web: true, Model: model, Label: "expand " + j.phase, Log: lg}
+			c := call{Provider: provider, System: expandPrompt, Prompt: prompt, Schema: phaseSchema, Web: true, Model: model, Label: "expand " + j.phase, Log: lg}
 			res, cost, broken, err := generate(ctx, c, func(o json.RawMessage) []string { return phaseErrors(kind, o, j.ids) })
 
 			mu.Lock()
@@ -342,12 +342,12 @@ func cmdExpand(ctx context.Context, p *Project, model string, out io.Writer) (er
 				lg.Show("✗ phase %s failed (%d/%d): %v", j.phase, done, len(jobs), withSavedOutput(p.Root, "expand-"+j.phase, err))
 				return
 			}
-			lg.Show("✓ phase %s expanded (%d/%d, %s, $%.2f)", j.phase, done, len(jobs), time.Since(began).Round(time.Second), cost)
+			lg.Show("✓ phase %s expanded (%d/%d, %s, %s)", j.phase, done, len(jobs), time.Since(began).Round(time.Second), costLabel(cost))
 			showRepairs(lg, broken)
 		}()
 	}
 	wg.Wait()
-	lg.Show("Finished in %s, $%.2f in total.", time.Since(start).Round(time.Second), total)
+	lg.Show("Finished in %s, %s in total.", time.Since(start).Round(time.Second), costLabel(total))
 	_, warns := Validate(p.Spec)
 	for _, w := range warns {
 		lg.Show("warning: %s", w)

@@ -79,7 +79,7 @@ func TestNewCreatesProject(t *testing.T) {
 	dir := t.TempDir()
 	calls := fakeClaude(t, func(context.Context, call) (string, error) { return outlineOf(testSpec()), nil })
 	var out bytes.Buffer
-	if err := cmdNew(context.Background(), dir, "Redis", "go", "", &out); err != nil {
+	if err := cmdNew(context.Background(), dir, "Redis", "go", "", "claude", &out); err != nil {
 		t.Fatal(err)
 	}
 	c := (*calls)[0]
@@ -102,7 +102,7 @@ func TestNewCreatesProject(t *testing.T) {
 	if !strings.Contains(out.String(), "Mini Redis: 2 phases, 3 steps") {
 		t.Fatalf("out = %s", out.String())
 	}
-	if err := cmdNew(context.Background(), dir, "Redis", "go", "", io.Discard); err == nil {
+	if err := cmdNew(context.Background(), dir, "Redis", "go", "", "claude", io.Discard); err == nil {
 		t.Fatal("new must refuse when a curriculum already exists")
 	}
 }
@@ -113,7 +113,7 @@ func TestNewSavesFailedOutputAndAllowsRetry(t *testing.T) {
 	bad := testSpec()
 	bad.Steps[1].Prerequisites = []string{"ghost"}
 	fakeClaude(t, func(context.Context, call) (string, error) { return outlineOf(bad), nil })
-	err := cmdNew(context.Background(), dir, "Redis", "go", "", io.Discard)
+	err := cmdNew(context.Background(), dir, "Redis", "go", "", "claude", io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "saved in") {
 		t.Fatalf("err = %v", err)
 	}
@@ -124,7 +124,7 @@ func TestNewSavesFailedOutputAndAllowsRetry(t *testing.T) {
 		t.Fatal("no spec.json should be written")
 	}
 	fakeClaude(t, func(context.Context, call) (string, error) { return outlineOf(testSpec()), nil })
-	if err := cmdNew(context.Background(), dir, "Redis", "go", "", io.Discard); err != nil {
+	if err := cmdNew(context.Background(), dir, "Redis", "go", "", "claude", io.Discard); err != nil {
 		t.Fatalf("retry after a failure: %v", err)
 	}
 }
@@ -136,7 +136,7 @@ func TestRevise(t *testing.T) {
 		s.Steps[2].Title = "Echo, revised"
 		return outlineOf(s), nil
 	})
-	if err := cmdRevise(context.Background(), p, "more echo", false, "", io.Discard); err == nil || !strings.Contains(err.Error(), "--force") {
+	if err := cmdRevise(context.Background(), p, "more echo", false, "", "claude", io.Discard); err == nil || !strings.Contains(err.Error(), "--force") {
 		t.Fatalf("err = %v", err)
 	}
 	if len(*calls) != 0 {
@@ -145,7 +145,7 @@ func TestRevise(t *testing.T) {
 	if err := cmdDone(p, "1", io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if err := cmdRevise(context.Background(), p, "more echo", true, "", io.Discard); err != nil {
+	if err := cmdRevise(context.Background(), p, "more echo", true, "", "claude", io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	c := (*calls)[0]
@@ -215,7 +215,7 @@ func TestExpandMergesPhasesAndResumes(t *testing.T) {
 		return phaseReply(c), nil
 	})
 	var out bytes.Buffer
-	err := cmdExpand(context.Background(), p, "", &out)
+	err := cmdExpand(context.Background(), p, "", "claude", &out)
 	if err == nil || !strings.Contains(err.Error(), "1 phases failed (setup)") {
 		t.Fatalf("err = %v\n%s", err, out.String())
 	}
@@ -237,7 +237,7 @@ func TestExpandMergesPhasesAndResumes(t *testing.T) {
 
 	failSetup = false
 	n := len(*calls)
-	if err := cmdExpand(context.Background(), q, "", io.Discard); err != nil {
+	if err := cmdExpand(context.Background(), q, "", "claude", io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if retried := (*calls)[n:]; len(retried) != 1 || !strings.Contains(retried[0].Prompt, "Phase to expand: setup") {
@@ -247,7 +247,7 @@ func TestExpandMergesPhasesAndResumes(t *testing.T) {
 		t.Fatal("setup not expanded on retry")
 	}
 	out.Reset()
-	if err := cmdExpand(context.Background(), q, "", &out); err != nil || !strings.Contains(out.String(), "already expanded") {
+	if err := cmdExpand(context.Background(), q, "", "claude", &out); err != nil || !strings.Contains(out.String(), "already expanded") {
 		t.Fatalf("out=%s err=%v", out.String(), err)
 	}
 }
@@ -255,7 +255,7 @@ func TestExpandMergesPhasesAndResumes(t *testing.T) {
 func TestExpandSavesInvalidPhaseOutput(t *testing.T) {
 	p := newTestProject(t)
 	fakeClaude(t, func(context.Context, call) (string, error) { return `{"steps":[]}`, nil })
-	err := cmdExpand(context.Background(), p, "", io.Discard)
+	err := cmdExpand(context.Background(), p, "", "claude", io.Discard)
 	matches, _ := filepath.Glob(p.abs("curriculum/.failed/expand-protocol-*.json"))
 	if err == nil || len(matches) != 1 {
 		t.Fatalf("err=%v failed outputs=%v", err, matches)
@@ -277,7 +277,7 @@ func TestExpandInterruptKeepsFinishedPhases(t *testing.T) {
 		}
 		return phaseReply(c), nil
 	})
-	err := cmdExpand(ctx, p, "", io.Discard)
+	err := cmdExpand(ctx, p, "", "claude", io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "run `tattva expand` again") {
 		t.Fatalf("err = %v", err)
 	}
@@ -304,7 +304,7 @@ func TestNewReportsARepair(t *testing.T) {
 		return outlineOf(bad), nil
 	})
 	var out bytes.Buffer
-	if err := cmdNew(context.Background(), t.TempDir(), "Redis", "go", "", &out); err != nil {
+	if err := cmdNew(context.Background(), t.TempDir(), "Redis", "go", "", "claude", &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "repaired after the first draft broke these rules") || !strings.Contains(out.String(), `prerequisite "ghost"`) {
@@ -322,7 +322,7 @@ func TestExpandReportsARepair(t *testing.T) {
 		return mustJSON(PhaseDetails{Steps: both.Steps[:1]}), nil
 	})
 	var out bytes.Buffer
-	if err := cmdExpand(context.Background(), p, "", &out); err != nil {
+	if err := cmdExpand(context.Background(), p, "", "claude", &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "repaired after the first draft broke these rules") || !strings.Contains(out.String(), "want exactly") {
@@ -364,12 +364,12 @@ func TestGenerateLogsTheRuleCheckAndRepair(t *testing.T) {
 		t.Fatalf("repair call label=%q, shares the log=%v", r.Label, r.Log == lg)
 	}
 	log := readFile(t, lg.Path)
-	for _, want := range []string{"[design] the first draft broke 1 rule; asking Claude to repair it", "[design]   broke: ok must be true", "[design repair] rules: ok"} {
+	for _, want := range []string{"[design] the first draft broke 1 rule; asking the selected provider to repair it", "[design]   broke: ok must be true", "[design repair] rules: ok"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("log missing %q:\n%s", want, log)
 		}
 	}
-	if !strings.Contains(term.String(), "  [design] the first draft broke 1 rule; asking Claude to repair it\n") {
+	if !strings.Contains(term.String(), "  [design] the first draft broke 1 rule; asking the selected provider to repair it\n") {
 		t.Errorf("the repair should show in the terminal:\n%s", term.String())
 	}
 }
@@ -378,7 +378,7 @@ func TestNewWritesALog(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fakeClaude(t, func(context.Context, call) (string, error) { return outlineOf(testSpec()), nil })
 	var out bytes.Buffer
-	if err := cmdNew(context.Background(), t.TempDir(), "Redis", "go", "", &out); err != nil {
+	if err := cmdNew(context.Background(), t.TempDir(), "Redis", "go", "", "claude", &out); err != nil {
 		t.Fatal(err)
 	}
 	log := readFile(t, logPathIn(t, out.String()))
@@ -393,7 +393,7 @@ func TestExpandLogsEachPhase(t *testing.T) {
 	p := newTestProject(t)
 	calls := fakeClaude(t, func(_ context.Context, c call) (string, error) { return phaseReply(c), nil })
 	var out bytes.Buffer
-	if err := cmdExpand(context.Background(), p, "", &out); err != nil {
+	if err := cmdExpand(context.Background(), p, "", "claude", &out); err != nil {
 		t.Fatal(err)
 	}
 	if (*calls)[0].Label != "expand protocol" {

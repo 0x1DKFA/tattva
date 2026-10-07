@@ -15,9 +15,9 @@ import (
 const usage = `tattva turns a system you've used into a curriculum you build yourself.
 
 Usage:
-  tattva new "<target>" --lang <lang> [--model <m>]   design a curriculum here
-  tattva revise "<feedback>" [--force] [--model <m>]  rewrite the outline
-  tattva expand [--model <m>]                         write the step details
+  tattva new "<target>" --lang <lang> [--provider <p>] [--model <m>]   design a curriculum here
+  tattva revise "<feedback>" [--force] [--provider <p>] [--model <m>]  rewrite the outline
+  tattva expand [--provider <p>] [--model <m>]                         write the step details
   tattva next                                         start the next step
   tattva done [step]                                  complete a step
   tattva status                                       show progress
@@ -38,8 +38,8 @@ func main() {
 	}
 }
 
-// interruptContext is cancelled by Ctrl-C or by kill (SIGTERM), so running
-// Claude calls are stopped rather than left spending unattended. After the
+// interruptContext is cancelled by Ctrl-C or by kill (SIGTERM), so generation
+// calls are stopped rather than left spending unattended. After the
 // first signal, a second one exits at once.
 func interruptContext() (context.Context, context.CancelFunc) {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -92,38 +92,50 @@ func run(ctx context.Context, dir string, args []string, out io.Writer) error {
 	case "new":
 		fs := newFlags(cmd)
 		lang := fs.String("lang", "", "language you'll build in")
-		model := fs.String("model", "", "Claude model")
+		model := fs.String("model", "", "model for the selected provider")
+		provider := fs.String("provider", "claude", "generation CLI (claude or codex)")
 		pos, err := parseArgs(fs, args)
 		if err != nil {
 			return err
 		}
 		if len(pos) != 1 || *lang == "" {
-			return errors.New(`usage: tattva new "<target>" --lang <lang> [--model <m>]`)
+			return errors.New(`usage: tattva new "<target>" --lang <lang> [--provider <p>] [--model <m>]`)
 		}
-		return cmdNew(ctx, dir, pos[0], *lang, *model, out)
+		if err := checkProvider(*provider); err != nil {
+			return err
+		}
+		return cmdNew(ctx, dir, pos[0], *lang, *model, *provider, out)
 	case "revise":
 		fs := newFlags(cmd)
 		force := fs.Bool("force", false, "drop step details and step files")
-		model := fs.String("model", "", "Claude model")
+		model := fs.String("model", "", "model for the selected provider")
+		provider := fs.String("provider", "claude", "generation CLI (claude or codex)")
 		pos, err := parseArgs(fs, args)
 		if err != nil {
 			return err
 		}
 		if len(pos) != 1 {
-			return errors.New(`usage: tattva revise "<feedback>" [--force] [--model <m>]`)
+			return errors.New(`usage: tattva revise "<feedback>" [--force] [--provider <p>] [--model <m>]`)
 		}
-		return withProject(dir, out, func(p *Project) error { return cmdRevise(ctx, p, pos[0], *force, *model, out) })
+		if err := checkProvider(*provider); err != nil {
+			return err
+		}
+		return withProject(dir, out, func(p *Project) error { return cmdRevise(ctx, p, pos[0], *force, *model, *provider, out) })
 	case "expand":
 		fs := newFlags(cmd)
-		model := fs.String("model", "", "Claude model")
+		model := fs.String("model", "", "model for the selected provider")
+		provider := fs.String("provider", "claude", "generation CLI (claude or codex)")
 		pos, err := parseArgs(fs, args)
 		if err != nil {
 			return err
 		}
 		if len(pos) != 0 {
-			return errors.New("usage: tattva expand [--model <m>]")
+			return errors.New("usage: tattva expand [--provider <p>] [--model <m>]")
 		}
-		return withProject(dir, out, func(p *Project) error { return cmdExpand(ctx, p, *model, out) })
+		if err := checkProvider(*provider); err != nil {
+			return err
+		}
+		return withProject(dir, out, func(p *Project) error { return cmdExpand(ctx, p, *model, *provider, out) })
 	case "list":
 		pos, err := parseArgs(newFlags(cmd), args)
 		if err != nil {

@@ -5,13 +5,14 @@ import (
 	"context"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
 )
 
-// TestMain hides the real claude CLI so no test can ever call it.
+// TestMain hides real model CLIs so no test can call them accidentally.
 func TestMain(m *testing.M) {
 	os.Setenv("PATH", "/usr/bin:/bin")
 	os.Exit(m.Run())
@@ -72,8 +73,32 @@ func TestRunNewNeedsLang(t *testing.T) {
 	}
 }
 
+func TestRunRejectsUnknownProvider(t *testing.T) {
+	err := run(context.Background(), t.TempDir(), []string{"new", "Redis", "--lang", "go", "--provider", "other"}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "choose claude or codex") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestRunNewWithCodexProvider(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	installFakeCodex(t)
+	t.Setenv("FAKE_OUTPUT", outlineOf(testSpec()))
+	dir := t.TempDir()
+	var out bytes.Buffer
+	if err := run(context.Background(), dir, []string{"new", "Redis", "--lang", "go", "--provider", "codex"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "curriculum", "spec.json")); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "cost not reported") {
+		t.Errorf("output doesn't describe Codex cost: %s", out.String())
+	}
+}
+
 // Without the handler, this SIGTERM would kill the test binary outright,
-// just as `kill` would leave running Claude calls orphaned.
+// just as `kill` would leave a running generator call orphaned.
 func TestInterruptContextCatchesSIGTERM(t *testing.T) {
 	ctx, stop := interruptContext()
 	defer stop()
