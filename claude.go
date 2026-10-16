@@ -45,7 +45,7 @@ func checkProvider(provider string) error {
 }
 
 // callTimeout bounds one call. It's a var so tests can shorten it.
-var callTimeout = 20 * time.Minute
+var callTimeout = 45 * time.Minute // ponytail: fixed guard against runaway calls; large outlines took 15-20+ min at 20
 
 // streamEvent is one line of `claude -p --output-format stream-json`, with
 // only the fields tattva reads.
