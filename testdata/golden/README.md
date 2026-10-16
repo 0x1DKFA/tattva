@@ -36,7 +36,7 @@ flowchart LR
 
 ## Program contract
 
-Create an executable `run.sh` at the project root that builds your server if needed and starts it. Checks start `./run.sh` with no arguments, wait for port 6379, and talk to it over TCP.
+Create an executable `run.sh` at the project root that builds your server if needed and starts it. Checks call `run.sh` with no arguments, by its absolute path, from a fresh scratch directory, so find your sources relative to `run.sh` itself, but start the server in the directory `run.sh` was called from: checks wait for port 6379, talk to it over TCP, and read the files it writes there.
 
 ## Concepts
 
@@ -57,10 +57,14 @@ Run `tattva next` to start the next step and `tattva status` to see your progres
 Get a program running.
 
 - **01 · Create run.sh**: run.sh starts a server on port 6379.
+  - `./run.sh` keeps running
+  - a TCP connection to port 6379 is accepted
 
 ### Phase 2: Protocol
 
 Speak RESP.
 
 - **02 · Respond to PING**: Reply +PONG to PING. *(after 01)* *(not expanded yet)*
+  - PING gets +PONG
 - **03 · Echo**: Reply to ECHO with its argument. *(after 02)* *(not expanded yet)*
+  - ECHO hi gets hi back

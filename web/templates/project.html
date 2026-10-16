@@ -77,6 +77,10 @@
 </form>
 <h2>goal</h2>
 {{markdown .Step.Goal}}
+{{- with .Step.Checkpoints}}
+<h2>checkpoints</h2>
+<ul>{{range .}}<li>{{markdown .}}</li>{{end}}</ul>
+{{- end}}
 <h2>why</h2>
 {{markdown .Step.Detail.Why}}
 <h2>context</h2>

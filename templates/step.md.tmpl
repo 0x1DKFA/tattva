@@ -6,6 +6,13 @@ Phase {{.PhaseNum}}: {{.PhaseTitle}} · Concepts: {{join .Step.Concepts ", "}}{{
 ## Goal
 
 {{.Step.Goal}}
+{{- if .Step.Checkpoints}}
+
+## Checkpoints
+{{range .Step.Checkpoints}}
+- {{.}}
+{{- end}}
+{{- end}}
 
 ## Why
 

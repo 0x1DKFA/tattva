@@ -92,6 +92,7 @@ type Step struct {
 	Phase         string   `json:"phase"`
 	Title         string   `json:"title"`
 	Goal          string   `json:"goal"`
+	Checkpoints   []string `json:"checkpoints"`
 	Concepts      []string `json:"concepts"`
 	Prerequisites []string `json:"prerequisites"`
 	Detail        *Detail  `json:"detail" schema:"-"` // nil until expanded

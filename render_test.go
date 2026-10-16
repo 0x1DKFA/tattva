@@ -76,6 +76,15 @@ func TestDescribeCheck(t *testing.T) {
 	}
 }
 
+func TestContractRunsInTheCallersDirectory(t *testing.T) {
+	// A run.sh that cds to its own folder writes files where checks never look.
+	for _, p := range []Program{{Kind: "server", Port: 6379}, {Kind: "cli"}} {
+		if c := contract(p); !strings.Contains(c, "in the directory `run.sh` was called from") || !strings.Contains(c, "relative to `run.sh` itself") {
+			t.Errorf("%s contract = %q", p.Kind, c)
+		}
+	}
+}
+
 func TestRenderGolden(t *testing.T) {
 	s := testSpec()
 	for name, got := range map[string][]byte{"README.md": renderReadme(s), "step-01.md": renderStep(s, 0)} {

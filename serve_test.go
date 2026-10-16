@@ -216,6 +216,7 @@ func TestProjectStepPage(t *testing.T) {
 	for _, want := range []string{
 		`<h2 class="pane-title">01-create-run-script.md</h2>`, "01 · Create run.sh", "phase 1: Setup",
 		"[ start step ]", "[ mark done ]", "[ show hint 1 ]", "opens after the hint above",
+		"<h2>checkpoints</h2>", "a TCP connection to port 6379 is accepted",
 		"machine checks (run by the verifier)", "<strong>accepts a connection</strong>",
 		"Forgetting to make run.sh executable.", "What happens if two programs listen on the same port?",
 		"02 · Respond to PING",

@@ -188,6 +188,37 @@ func mustJSON(v any) string {
 	return string(b)
 }
 
+func TestOutlineRejectsLongGoals(t *testing.T) {
+	s := testSpec()
+	s.Steps[1].Goal = "`run.sh` compiles the core with `-ffreestanding` (only stdint/stddef/stdbool headers, its own memset) and `host.c` as a hosted file, " +
+		"and `run.sh --frame <seed> <w> <h> <x> <y> <angle> <steps>` has the core fill a w×h RGBA buffer with opaque black that the host prints as a P3 PPM " +
+		"(`P3`, `w h`, `255`, one `r g b` pixel per line) while `run.sh` with no arguments exits 0."
+	if _, errs := specFromOutline(json.RawMessage(outlineOf(s)), "id", "Redis", "go"); !containsAny(errs, `step "respond-to-ping": goal is 65 words`) {
+		t.Fatalf("errs = %q", errs)
+	}
+	// Projects made before the rule still open.
+	s.Steps[0].Detail = testDetail()
+	if errs, _ := Validate(s); len(errs) > 0 {
+		t.Fatalf("Validate errs = %q", errs)
+	}
+}
+
+func TestOutlineCapsCheckpoints(t *testing.T) {
+	s := testSpec()
+	s.Steps[1].Checkpoints = nil
+	s.Steps[2].Checkpoints = []string{"a", "b", "c", "d"}
+	_, errs := specFromOutline(json.RawMessage(outlineOf(s)), "id", "Redis", "go")
+	for _, want := range []string{`step "respond-to-ping" has 0 checkpoints`, `step "echo-command" has 4 checkpoints`} {
+		if !containsAny(errs, want) {
+			t.Errorf("errs = %q, want one containing %q", errs, want)
+		}
+	}
+	// Projects made before checkpoints still open.
+	if errs, _ := Validate(s); len(errs) > 0 {
+		t.Fatalf("Validate errs = %q", errs)
+	}
+}
+
 func TestPhaseErrors(t *testing.T) {
 	good := json.RawMessage(mustJSON(PhaseDetails{Steps: []StepDetail{{ID: "a", Detail: *testDetail()}}}))
 	if errs := phaseErrors("server", good, []string{"a"}); len(errs) > 0 {

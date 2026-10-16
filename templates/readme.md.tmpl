@@ -58,5 +58,8 @@ Run `tattva next` to start the next step and `tattva status` to see your progres
 {{.Purpose}}
 {{range .Steps}}
 - **{{.Num}} · {{.Title}}**: {{.Goal}}{{if .After}} *(after {{.After}})*{{end}}{{if not .Expanded}} *(not expanded yet)*{{end}}
+{{- range .Checkpoints}}
+  - {{.}}
+{{- end}}
 {{- end}}
 {{end -}}

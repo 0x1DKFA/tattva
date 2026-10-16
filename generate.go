@@ -19,7 +19,7 @@ import (
 //go:embed prompts/design.md
 var designPrompt string
 
-const repairPrompt = `You repair JSON answers that failed validation. You receive the original request, the answer that was given, and the rules the answer breaks. Return the corrected answer, matching the same schema, and change only what is needed to satisfy the rules. If a requested item is missing, write it from the request. If a step introduces too many new concepts, split it into smaller steps and update the prerequisites that pointed at it.`
+const repairPrompt = `You repair JSON answers that failed validation. You receive the original request, the answer that was given, and the rules the answer breaks. Return the corrected answer, matching the same schema, and change only what is needed to satisfy the rules. If a requested item is missing, write it from the request. If a step introduces too many new concepts, or its goal is too long because it joins several behaviours, split it into smaller steps, one behaviour each, and update the prerequisites that pointed at it. If a goal is long only because it spells out formulas, constants or conventions, move those to scope.in instead of splitting. Never drop a behaviour from a goal to make it fit. If a step has more than 3 checkpoints, split it the same way, one behaviour per step; never drop checkpoints or join them with "and" to fit. If a step has no checkpoints, write 1 to 3 from its goal.`
 
 // claude runs one call. It's a var so tests can swap in a fake.
 var claude = runClaude
@@ -102,6 +102,14 @@ func withSavedOutput(root, name string, err error) error {
 	return fmt.Errorf("%w\nThe output is saved in %s", err, path)
 }
 
+// maxGoalWords caps a generated step's goal, so a step stays one behaviour.
+// It isn't in Validate, so projects made before it still open.
+const maxGoalWords = 30 // ponytail: crude proxy for step size; maxCheckpoints and the probe rule do the real work
+
+// maxCheckpoints caps a generated step's observable results, the real limit
+// on its size. Like maxGoalWords, it isn't in Validate.
+const maxCheckpoints = 3 // ponytail: tune after a few curricula
+
 // specFromOutline turns an outline from the selected provider into a spec with tattva's own
 // fields set, and returns the rules it breaks.
 func specFromOutline(out json.RawMessage, id, target, lang string) (*Spec, []string) {
@@ -115,6 +123,14 @@ func specFromOutline(out json.RawMessage, id, target, lang string) (*Spec, []str
 		s.Steps[i].Detail = nil
 	}
 	errs, _ := Validate(&s)
+	for _, st := range s.Steps {
+		if n := len(strings.Fields(st.Goal)); n > maxGoalWords {
+			errs = append(errs, fmt.Sprintf("step %q: goal is %d words; the maximum is %d: if it joins several behaviours split the step, otherwise move formulas and shared conventions to scope.in", st.ID, n, maxGoalWords))
+		}
+		if n := len(st.Checkpoints); n < 1 || n > maxCheckpoints {
+			errs = append(errs, fmt.Sprintf("step %q has %d checkpoints; want 1 to %d, so split a step with more", st.ID, n, maxCheckpoints))
+		}
+	}
 	return &s, errs
 }
 

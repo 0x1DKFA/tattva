@@ -56,11 +56,14 @@ func testSpec() *Spec {
 		},
 		Steps: []Step{
 			{ID: "create-run-script", Phase: "setup", Title: "Create run.sh", Goal: "run.sh starts a server on port 6379.",
-				Concepts: []string{"program-contract", "tcp-sockets"}, Prerequisites: []string{}, Detail: testDetail()},
+				Checkpoints: []string{"`./run.sh` keeps running", "a TCP connection to port 6379 is accepted"},
+				Concepts:    []string{"program-contract", "tcp-sockets"}, Prerequisites: []string{}, Detail: testDetail()},
 			{ID: "respond-to-ping", Phase: "protocol", Title: "Respond to PING", Goal: "Reply +PONG to PING.",
-				Concepts: []string{"message-framing"}, Prerequisites: []string{"create-run-script"}},
+				Checkpoints: []string{"PING gets +PONG"},
+				Concepts:    []string{"message-framing"}, Prerequisites: []string{"create-run-script"}},
 			{ID: "echo-command", Phase: "protocol", Title: "Echo", Goal: "Reply to ECHO with its argument.",
-				Concepts: []string{"message-framing"}, Prerequisites: []string{"respond-to-ping"}},
+				Checkpoints: []string{"ECHO hi gets hi back"},
+				Concepts:    []string{"message-framing"}, Prerequisites: []string{"respond-to-ping"}},
 		},
 	}
 }

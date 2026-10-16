@@ -29,6 +29,7 @@ type phaseView struct {
 
 type stepLine struct {
 	Num, Title, Goal, After string
+	Checkpoints             []string
 	Expanded                bool
 }
 
@@ -52,7 +53,7 @@ func renderReadme(s *Spec) []byte {
 		pv := phaseView{Num: pi + 1, Title: ph.Title, Purpose: ph.Purpose}
 		for i, st := range s.Steps {
 			if st.Phase == ph.ID {
-				pv.Steps = append(pv.Steps, stepLine{Num: num(i), Title: st.Title, Goal: st.Goal,
+				pv.Steps = append(pv.Steps, stepLine{Num: num(i), Title: st.Title, Goal: st.Goal, Checkpoints: st.Checkpoints,
 					After: s.prereqNums(st), Expanded: st.Detail != nil})
 			}
 		}
@@ -127,10 +128,12 @@ func hintLabel(i int) string {
 func contract(p Program) string {
 	if p.Kind == "server" {
 		return fmt.Sprintf("Create an executable `run.sh` at the project root that builds your server if needed and starts it. "+
-			"Checks start `./run.sh` with no arguments, wait for port %d, and talk to it over TCP.", p.Port)
+			"Checks call `run.sh` with no arguments, by its absolute path, from a fresh scratch directory, so find your sources relative to `run.sh` itself, "+
+			"but start the server in the directory `run.sh` was called from: checks wait for port %d, talk to it over TCP, and read the files it writes there.", p.Port)
 	}
 	return "Create an executable `run.sh` at the project root that builds your program if needed and runs it, passing its arguments through. " +
-		"Checks run `./run.sh` with arguments in a scratch directory and read its output and the files it writes."
+		"Checks call `run.sh` by its absolute path from a scratch directory, so find your sources relative to `run.sh` itself, " +
+		"but run the program in the directory `run.sh` was called from: checks read its output and the files it writes there."
 }
 
 // describeCheck is a one-line, human-readable version of a check.

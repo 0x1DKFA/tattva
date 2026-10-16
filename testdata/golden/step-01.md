@@ -7,6 +7,11 @@ Phase 1: Setup · Concepts: program-contract, tcp-sockets
 
 run.sh starts a server on port 6379.
 
+## Checkpoints
+
+- `./run.sh` keeps running
+- a TCP connection to port 6379 is accepted
+
 ## Why
 
 Every check starts your program through run.sh.
