@@ -33,7 +33,7 @@ func runCodex(ctx context.Context, c call) (json.RawMessage, float64, error) {
 		args = append(args, "--search")
 	}
 	args = append(args, "exec", "--ignore-user-config", "--json", "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only", "--ask-for-approval", "never",
-		"--output-schema", schemaPath, "--output-last-message", outputPath}
+		"--output-schema", schemaPath, "--output-last-message", outputPath)
 	if c.Model != "" {
 		args = append(args, "--model", c.Model)
 	}

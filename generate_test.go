@@ -382,7 +382,7 @@ func TestNewWritesALog(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := readFile(t, logPathIn(t, out.String()))
-	for _, want := range []string{`tattva new "Redis" --lang go in `, "[design] rules: ok", "Mini Redis: 2 phases, 3 steps (", " done\n"} {
+	for _, want := range []string{`tattva new "Redis" --lang go --provider claude in `, "[design] rules: ok", "Mini Redis: 2 phases, 3 steps (", " done\n"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("log missing %q:\n%s", want, log)
 		}
@@ -400,7 +400,7 @@ func TestExpandLogsEachPhase(t *testing.T) {
 		t.Errorf("call label = %q", (*calls)[0].Label)
 	}
 	log := readFile(t, logPathIn(t, out.String()))
-	for _, want := range []string{"tattva expand in ", "[expand protocol] rules: ok", "✓ phase protocol expanded"} {
+	for _, want := range []string{"tattva expand --provider claude in ", "[expand protocol] rules: ok", "✓ phase protocol expanded"} {
 		if !strings.Contains(log, want) {
 			t.Errorf("log missing %q:\n%s", want, log)
 		}
