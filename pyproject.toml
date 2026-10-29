@@ -24,3 +24,6 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["tattva"]
+
+[tool.pytest.ini_options]
+addopts = "-p no:langsmith_plugin"
