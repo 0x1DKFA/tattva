@@ -34,6 +34,8 @@ def run(cwd: Path, argv: list[str], out: TextIO) -> None:
     for name in ("next", "status", "list"):
         commands.add_parser(name, add_help=False)
     commands.add_parser("done", add_help=False).add_argument("step", nargs="*")
+    commands.add_parser("serve", add_help=False, usage="tattva serve [--port <n>]").add_argument(
+        "--port", type=int, default=4747)
     new = commands.add_parser("new", add_help=False,
                               usage='tattva new "<target>" --lang <lang> [--provider <p>] [--model <m>]')
     new.add_argument("target")
@@ -52,6 +54,11 @@ def run(cwd: Path, argv: list[str], out: TextIO) -> None:
             raise TattvaError(f"usage: {new.usage}")
         from tattva.run import cmd_new  # here, so other commands don't pay for importing LangGraph
         cmd_new(cwd, args.target, args.lang, args.provider, args.model, out)
+    elif args.command == "serve":
+        if extra:
+            raise TattvaError("usage: tattva serve [--port <n>]")
+        from tattva.serve import cmd_serve
+        cmd_serve(args.port, out)
     elif args.command == "done":
         if extra or len(args.step) > 1:
             raise TattvaError("usage: tattva done [step]")

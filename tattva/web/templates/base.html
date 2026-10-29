@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en" data-themes="{{ themes|join(' ') }}" data-theme="{{ themes[0] }}" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}{% endblock %} · tattva</title>
+<script src="/static/theme-boot.js"></script>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="bar">
+  <span class="brand">[tattva]</span>
+  <label>theme <select id="theme">{% for t in themes %}<option value="{{ t }}">{{ t }}</option>{% endfor %}</select></label>
+  <button type="button" id="mode" aria-label="Switch between dark and light mode">[dark]</button>
+  <nav class="windows" aria-label="Projects">
+    <a href="/"{% if not current %} class="active" aria-current="page"{% endif %}>0:projects</a>
+    {%- for p in projects %}
+    <a href="/p/{{ p.id }}"{% if current and current.id == p.id %} class="active" aria-current="page"{% endif %}>{{ p.n }}:{{ p.slug }}{% if current and current.id == p.id %}*{% endif %}</a>
+    {%- endfor %}
+  </nav>
+  {%- if current and not current.problem %}
+  <span class="stats">{{ current.done }}/{{ current.total }} ✓{% if hint_note(current.hints) %} · {{ hint_note(current.hints) }}{% endif %}</span>
+  {%- endif %}
+</header>
+{% block main %}{% endblock %}
+<script src="/static/app.js"></script>
+</body>
+</html>

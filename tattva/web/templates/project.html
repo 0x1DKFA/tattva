@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}{{ current.slug }}{% endblock %}
+{% block main %}
+<main class="panes" id="panes">
+  <nav class="pane steps" aria-label="Steps">
+    <h2 class="pane-title">steps</h2>
+    <div class="pane-body">
+      <a class="nav-item{% if overview %} selected{% endif %}" href="/p/{{ current.id }}"{% if overview %} aria-current="page"{% endif %}>▸ overview</a>
+      {%- for ph in phases %}
+      <p class="phase">{{ ph.title }}</p>
+      {%- for s in ph.steps %}
+      <a class="nav-item status-{{ s.status }}{% if s.selected %} selected{% endif %}" href="/p/{{ current.id }}/s/{{ s.n }}"{% if s.selected %} aria-current="page"{% endif %}><span class="mark">{{ s.mark }}</span> {{ s.num }} {{ s.title }}{% if s.hints %} <span class="hint-count">{{ s.hints }}</span>{% endif %}</a>
+      {%- endfor %}
+      {%- endfor %}
+    </div>
+  </nav>
+  <div class="divider" id="divider" role="separator" aria-orientation="vertical" aria-label="Resize the steps pane" aria-valuemin="200" tabindex="0"></div>
+  <article class="pane content">
+  {%- if problem %}
+    <h2 class="pane-title">error</h2>
+    <div class="pane-body"><p class="note">{{ problem }}</p></div>
+  {%- elif overview %}{{ overview_pane(overview) }}
+  {%- else %}{{ step_pane(step) }}
+  {%- endif %}
+  </article>
+</main>
+{% endblock %}
+
+{% macro references_list(refs) %}{% if refs %}
+<h2>references</h2>
+<ul>
+{%- for r in refs %}
+  <li>{% if safe_url(r.url) %}<a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">{{ r.title }}</a> ↗{% else %}{{ r.title }} <span class="dim">({{ r.url }})</span>{% endif %}</li>
+{%- endfor %}
+</ul>
+{%- endif %}{% endmacro %}
+
+{% macro overview_pane(o) %}
+{%- set s = o.spec %}
+<h2 class="pane-title">README.md</h2>
+<div class="pane-body md">
+<h1>{{ s.project.name }}</h1>
+{{ s.project.summary|markdown }}
+<p class="meta">target: {{ s.project.target }} · language: {{ s.project.language }}</p>
+<h2>what this curriculum assumes</h2>
+<ul>{% for a in s.project.assumes %}<li>{{ a }}</li>{% endfor %}</ul>
+<h2>scope</h2>
+<p>in scope:</p>
+<ul>{% for i in s.scope.in_ %}<li>{{ i }}</li>{% endfor %}</ul>
+<p>left out:</p>
+<ul>{% for x in s.scope.out %}<li><strong>{{ x.feature }}</strong>: {{ x.why }}</li>{% endfor %}</ul>
+<h2>how the real system is built</h2>
+{{ s.architecture.real|markdown }}
+<h2>what you'll build</h2>
+<ul>{% for c in s.architecture.components %}<li><strong>{{ c.id }}</strong>: {{ c.responsibility }}{% if c.talks_to %} (talks to {{ c.talks_to|join(", ") }}){% endif %}</li>{% endfor %}</ul>
+<pre class="mermaid" data-source="{{ s.architecture.diagram }}">{{ s.architecture.diagram }}</pre>
+<h2>program contract</h2>
+{{ o.contract|markdown }}
+<h2>concepts</h2>
+<ul>{% for c in s.concepts %}<li><strong>{{ c.name }}</strong> (<code>{{ c.id }}</code>): {{ c.summary }}</li>{% endfor %}</ul>
+{{ references_list(s.references) }}
+</div>
+<script src="/static/mermaid.min.js"></script>
+{% endmacro %}
+
+{% macro step_pane(p) %}
+{%- set v = p.view %}{% set d = v.step.detail %}
+<h2 class="pane-title">{{ p.file }}</h2>
+<div class="pane-body md">
+<h1>{{ v.num }} · {{ v.step.title }}</h1>
+<p class="meta">phase {{ v.phase_num }}: {{ v.phase_title }} · concepts: {{ v.step.concepts|join(", ") }}{% if v.after %} · after: {{ v.after }}{% endif %}</p>
+<form class="actions" method="post">
+  {%- if p.status == "available" %}<button formaction="{{ p.base }}/start">[ start step ]</button>{% endif %}
+  {%- if p.status == "done" %}<span class="done-note">✓ done</span>{% else %}<button formaction="{{ p.base }}/done">[ mark done ]</button>{% endif %}
+  {%- if p.missing and p.status != "done" %}<span class="note">prerequisites {{ p.missing }} aren't done yet</span>{% endif %}
+</form>
+<h2>goal</h2>
+{{ v.step.goal|markdown }}
+{%- if p.checkpoints %}
+<h2>checkpoints</h2>
+<ul>{% for c in p.checkpoints %}<li>{{ c|markdown }}</li>{% endfor %}</ul>
+{%- endif %}
+<h2>why</h2>
+{{ d.why|markdown }}
+<h2>context</h2>
+{{ d.context|markdown }}
+<h2>your task</h2>
+{{ d.task|markdown }}
+{%- if d.constraints %}
+<h2>constraints</h2>
+<ul>{% for c in d.constraints %}<li>{{ c|markdown }}</li>{% endfor %}</ul>
+{%- endif %}
+<h2>check it</h2>
+{{ d.by_hand|markdown }}
+<p><strong>expected outcome:</strong> {{ d.expected_outcome }}</p>
+{%- if v.checks %}
+<details class="checks"><summary>machine checks (run by the verifier)</summary>
+<ul>{% for c in v.checks %}<li>{{ c|markdown }}</li>{% endfor %}</ul>
+</details>
+{%- endif %}
+<h2 id="hints">hints</h2>
+{%- for h in p.reveal %}
+<section class="hint">
+<h3>{{ h.label }}</h3>
+{%- if h.revealed %}
+{{ h.text|markdown }}
+{%- elif h.next %}
+<form method="post" action="{{ p.base }}/hint"><input type="hidden" name="level" value="{{ h.level }}"><button>[ show hint {{ h.level }} ]</button></form>
+{%- else %}
+<p class="dim">opens after the hint above</p>
+{%- endif %}
+</section>
+{%- endfor %}
+<h2>common mistakes</h2>
+<ul>{% for m in d.common_mistakes %}<li>{{ m|markdown }}</li>{% endfor %}</ul>
+<h2>reflect</h2>
+{{ d.reflection|markdown }}
+{%- if v.unlocks %}
+<h2>unlocks</h2>
+<ul>{% for u in v.unlocks %}<li>{{ u }}</li>{% endfor %}</ul>
+{%- endif %}
+{{ references_list(p.references) }}
+</div>
+{% endmacro %}

@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}projects{% endblock %}
+{% block main %}
+<main class="tiles">
+{%- if warn %}
+  <section class="pane card"><h2 class="pane-title">note</h2><p class="note">{{ warn }}</p></section>
+{%- endif %}
+{%- for p in projects %}
+{%- if p.problem %}
+  <section class="pane card missing">
+    <h2 class="pane-title">{{ p.n }}:{{ p.slug }}</h2>
+    <p class="card-name">{{ p.name }}</p>
+    <p class="note">{{ p.problem }}</p>
+  </section>
+{%- else %}
+  <a class="pane card" href="/p/{{ p.id }}">
+    <h2 class="pane-title">{{ p.n }}:{{ p.slug }}</h2>
+    <p class="card-name">{{ p.name }}</p>
+    <p class="card-meta">{{ p.target }} · {{ p.language }}</p>
+    <p><span class="card-bar">[{{ progress_bar(p.done, p.total) }}]</span> {{ p.done }}/{{ p.total }}{% if hint_note(p.hints) %} · {{ hint_note(p.hints) }}{% endif %}</p>
+    <p class="card-current">{{ p.focus }}</p>
+  </a>
+{%- endif %}
+{%- else %}
+  <section class="pane card">
+    <h2 class="pane-title">0:projects</h2>
+    <p>No projects yet. In a new folder, run <code>tattva new "&lt;target&gt;" --lang &lt;lang&gt;</code>.</p>
+  </section>
+{%- endfor %}
+</main>
+{% endblock %}
