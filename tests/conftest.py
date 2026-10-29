@@ -1,9 +1,72 @@
+import os
+
 import pytest
+
+# Stand-ins for the claude and codex CLIs (ported from claude_test.go and codex_test.go). They record their
+# arguments (NUL-separated), stdin and working directory in $FAKE_DIR, then reply per $FAKE_MODE.
+FAKE_CLIS = {
+    "claude": r"""#!/bin/sh
+printf '%s\0' "$@" > "$FAKE_DIR/args"
+cat > "$FAKE_DIR/stdin"
+pwd > "$FAKE_DIR/cwd"
+case "$FAKE_MODE" in
+ok) printf '%s\n' \
+  '{"type":"system","subtype":"init","model":"test-model","tools":["StructuredOutput","WebSearch","WebFetch"]}' \
+  '{"type":"assistant","message":{"content":[{"type":"text","text":"Looking up the spec."},{"type":"tool_use","name":"WebSearch","input":{"query":"parquet spec"}}]}}' \
+  '{"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"fetch failed: 404"}]}}' \
+  '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"WebFetch","input":{"url":"https://example.com/spec","prompt":"read it"}}]}}' \
+  '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"}}' \
+  '{"type":"result","subtype":"success","is_error":false,"result":"{}","structured_output":{"answer":42},"total_cost_usd":0.25,"num_turns":3}'
+  echo "a warning from claude" >&2 ;;
+error) printf '%s\n' '{"type":"result","is_error":true,"result":"There is an issue with the selected model","total_cost_usd":0}'; exit 1 ;;
+garbage) echo "not json"; echo "segfault in module" >&2; exit 2 ;;
+empty) printf '%s\n' '{"type":"result","is_error":false,"result":"I could not comply","total_cost_usd":0.1}' ;;
+hang) exec sleep 10 ;;
+hang-child) sleep 10 & wait ;;
+esac
+""",
+    "codex": r"""#!/bin/sh
+printf '%s\0' "$@" > "$FAKE_DIR/args"
+cat > "$FAKE_DIR/stdin"
+schema=""
+output=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output-schema) schema="$2"; shift 2 ;;
+    --output-last-message) output="$2"; shift 2 ;;
+    *) shift ;;
+  esac
+done
+cp "$schema" "$FAKE_DIR/schema"
+if [ -n "$FAKE_OUTPUT" ]; then
+  printf '%s\n' "$FAKE_OUTPUT" > "$output"
+else
+  printf '%s\n' '{"answer":42}' > "$output"
+fi
+printf '%s\n' '{"type":"turn.started"}' '{"type":"item.completed","item":{"type":"agent_message","text":"Done."}}'
+""",
+}
 
 
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+
+@pytest.fixture
+def fake_cli(tmp_path, monkeypatch):
+    """fake_cli(name, mode) puts a fake claude or codex first on PATH and returns the dir it records into."""
+    def install(name: str, mode: str):
+        bindir, rec = tmp_path / "fake-bin", tmp_path / "fake-rec"
+        bindir.mkdir(exist_ok=True)
+        rec.mkdir(exist_ok=True)
+        (bindir / name).write_text(FAKE_CLIS[name])
+        (bindir / name).chmod(0o755)
+        monkeypatch.setenv("PATH", f"{bindir}{os.pathsep}{os.environ['PATH']}")
+        monkeypatch.setenv("FAKE_DIR", str(rec))
+        monkeypatch.setenv("FAKE_MODE", mode)
+        return rec
+    return install
 
 
 @pytest.fixture
