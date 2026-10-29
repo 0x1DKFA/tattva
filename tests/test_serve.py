@@ -354,3 +354,41 @@ def test_theme_contrast():
         for fg, bg, want in pairs:
             hi, lo = sorted((lum(v[fg]), lum(v[bg])), reverse=True)
             assert (hi + 0.05) / (lo + 0.05) >= want, (m[1], m[2], fg, bg)
+
+
+# --- robustness ---
+
+def raw_post(server, headers):
+    port = server.server_address[1]
+    conn = http.client.HTTPConnection("127.0.0.1", port)
+    conn.putrequest("POST", "/p/x/s/1/start", skip_host=True)
+    for k, v in {"Host": f"127.0.0.1:{port}", **headers}.items():
+        conn.putheader(k, v)
+    conn.endheaders()
+    resp = conn.getresponse()
+    status = resp.status
+    conn.close()
+    return status
+
+
+def test_post_body_limits_and_checks_come_before_reading(server):
+    assert raw_post(server, {"Content-Length": "999999999"}) == 413  # no body sent: must not wait for it
+    assert raw_post(server, {"Content-Length": "-5"}) == 400
+    assert raw_post(server, {"Content-Length": "abc"}) == 400
+    assert raw_post(server, {"Content-Length": "999999999", "Sec-Fetch-Site": "cross-site"}) == 403
+
+
+def test_handler_has_a_socket_timeout():
+    assert serve.Handler.timeout == 10
+
+
+def test_unexpected_errors_answer_500_with_headers(server, project, monkeypatch):
+    def boom(*a):
+        raise OSError("disk full")
+    monkeypatch.setattr("tattva.serve.append_event", boom)
+    resp, body = request(server, "POST", url(project, "/s/1/start"), form={})
+    assert resp.status == 500 and "disk full" in body
+    assert resp.getheader("Content-Security-Policy") == CSP
+    monkeypatch.setattr("tattva.serve._env.get_template", boom)
+    resp, body = request(server, "GET", "/")
+    assert resp.status == 500 and "disk full" in body

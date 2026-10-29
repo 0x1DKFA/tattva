@@ -23,6 +23,7 @@ from .spec import Reference, Spec, step_file
 # Colour themes in dropdown order; the first is the default. Each has a dark and a light block in app.css.
 THEMES = ["catppuccin", "tokyo-night", "gruvbox"]
 STATIC = Path(__file__).parent / "web" / "static"
+MAX_FORM = 64 * 1024  # the forms here post one short field
 CSP = ("default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; base-uri 'none'; "
        "form-action 'self'; frame-ancestors 'none'")
 
@@ -118,11 +119,12 @@ def step_page(id: str, s: Spec, pr: Progress, i: int) -> StepPage:
 def make_server(port: int) -> ThreadingHTTPServer:
     """A workspace server on 127.0.0.1; port 0 picks a free one. The Host check uses the port it got."""
     srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
-    srv.daemon_threads = True
     return srv
 
 
 class Handler(BaseHTTPRequestHandler):
+    timeout = 10  # a stalled connection can't hold a thread forever
+
     def log_message(self, *args):  # no per-request stderr noise
         pass
 
@@ -158,6 +160,18 @@ class Handler(BaseHTTPRequestHandler):
         return origin is None or urlsplit(origin).netloc == self.headers.get("Host")
 
     def do_GET(self):
+        self.guarded(self.get)
+
+    def do_POST(self):
+        self.guarded(self.post)
+
+    def guarded(self, handle) -> None:
+        try:
+            handle()
+        except Exception as e:  # answer 500 with the error rather than dropping the connection
+            self.fail(500, str(e) or type(e).__name__)
+
+    def get(self):
         if not self.local():
             return self.fail(403, "the tattva workspace only answers on 127.0.0.1 and localhost")
         path = unquote(urlsplit(self.path).path)
@@ -170,13 +184,17 @@ class Handler(BaseHTTPRequestHandler):
             return self.project(m[1], m[2])
         self.fail(404, "not found")
 
-    def do_POST(self):
-        length = int(self.headers.get("Content-Length") or 0)
-        form = parse_qs(self.rfile.read(length).decode(errors="replace")) if length else {}
+    def post(self):
         if not self.local():
             return self.fail(403, "the tattva workspace only answers on 127.0.0.1 and localhost")
         if not self.same_origin():
             return self.fail(403, "cross-origin request rejected")
+        size = self.headers.get("Content-Length") or "0"
+        if not (size.isascii() and size.isdigit()):
+            return self.fail(400, "bad Content-Length")
+        if int(size) > MAX_FORM:
+            return self.fail(413, "request body too large")
+        form = parse_qs(self.rfile.read(int(size)).decode(errors="replace"))
         m = re.fullmatch(r"/p/([^/]+)/s/([^/]+)/([^/]+)", unquote(urlsplit(self.path).path))
         if not m:
             return self.fail(404, "not found")
