@@ -194,6 +194,26 @@ def step_file(i: int, step_id: str) -> str:
     return "%s/%02d-%s.md" % (STEPS_DIR, i + 1, step_id)
 
 
+def id_errors(kind: str, ids: list[str]) -> tuple[set[str], list[str]]:
+    errs: list[str] = []
+    seen: set[str] = set()
+    for i in ids:
+        if not KEBAB.match(i):
+            errs.append(f"{kind} id {i!r} is not kebab-case")
+        if i in seen:
+            errs.append(f"duplicate {kind} id {i!r}")
+        seen.add(i)
+    return seen, errs
+
+
+def program_errors(p: Program) -> list[str]:
+    if p.kind == "server" and not 1024 <= p.port <= 65535:
+        return [f"server port {p.port} must be between 1024 and 65535"]
+    if p.kind == "cli" and p.port != 0:
+        return [f"cli programs have port 0, got {p.port}"]
+    return []
+
+
 def validate(spec: Spec) -> tuple[list[str], list[str]]:
     errs: list[str] = []
     warns: list[str] = []
@@ -202,14 +222,9 @@ def validate(spec: Spec) -> tuple[list[str], list[str]]:
         errs.append(f"schema_version is {spec.schema_version}, want {SCHEMA_VERSION}")
 
     def id_set(kind: str, ids: list[str]) -> set[str]:
-        seen: set[str] = set()
-        for i in ids:
-            if not KEBAB.match(i):
-                errs.append(f"{kind} id {i!r} is not kebab-case")
-            if i in seen:
-                errs.append(f"duplicate {kind} id {i!r}")
-            seen.add(i)
-        return seen
+        found, e = id_errors(kind, ids)
+        errs.extend(e)
+        return found
 
     phase_ids = [p.id for p in spec.phases]
     concept_ids = [c.id for c in spec.concepts]
@@ -291,10 +306,7 @@ def validate(spec: Spec) -> tuple[list[str], list[str]]:
                 errs.append(f"component {c.id!r} talks to undeclared component {other!r}")
 
     p = spec.program
-    if p.kind == "server" and not 1024 <= p.port <= 65535:
-        errs.append(f"server port {p.port} must be between 1024 and 65535")
-    elif p.kind == "cli" and p.port != 0:
-        errs.append(f"cli programs have port 0, got {p.port}")
+    errs += program_errors(p)
 
     for st in spec.steps:
         e, w = detail_errors(p.kind, st.detail)
