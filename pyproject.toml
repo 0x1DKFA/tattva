@@ -27,3 +27,4 @@ packages = ["tattva"]
 
 [tool.pytest.ini_options]
 addopts = "-p no:langsmith_plugin"
+filterwarnings = ["ignore:'asyncio.iscoroutinefunction' is deprecated:DeprecationWarning:langsmith"]  # langsmith on Python 3.14, not ours
