@@ -12,6 +12,7 @@ from typing import Callable
 
 from tattva import TattvaError
 
+MAX_CALLS = 4  # CLI children running at once, whatever the graph schedules
 CALL_TIMEOUT = 45 * 60  # seconds  # ponytail: fixed guard against runaway calls; large outlines took 15-20+ min at 20
 
 
@@ -58,6 +59,7 @@ NOT_ON_PATH = {
 _lock = threading.RLock()  # re-entrant, so kill_children can run in a signal handler
 _live: dict[subprocess.Popen, str] = {}  # running child -> why it was killed ("" while it wasn't)
 _stopped = False  # set by kill_children: later calls are interrupted before they start
+_slots = threading.BoundedSemaphore(MAX_CALLS)
 
 
 def check_provider(name: str) -> None:
@@ -126,7 +128,7 @@ def _run(cmd: list[str], cwd: str, prompt: str, on_line: Callable[[str], None],
     """Runs cmd in cwd with prompt on stdin, passing each stdout line to on_line.
     Returns the exit code and stderr; raises CallTimedOut or Interrupted when it was killed."""
     # stderr goes to a file, not a pipe: a leftover child of the CLI holding a pipe open would block us
-    with tempfile.TemporaryFile() as errf:
+    with _slots, tempfile.TemporaryFile() as errf:  # after kill_children, each waiter gets a slot and stops at once
         with _lock:  # so kill_children can't miss a child that is starting
             if _stopped:
                 raise Interrupted("interrupted")

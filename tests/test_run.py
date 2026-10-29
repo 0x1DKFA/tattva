@@ -11,7 +11,7 @@ from tattva.run import cmd_new
 
 
 def handlers():
-    return signal.getsignal(signal.SIGINT), signal.getsignal(signal.SIGTERM)
+    return [signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)]
 
 
 def test_new_writes_curriculum_and_prints_graph(tmp_path, fake):
@@ -59,13 +59,14 @@ def test_interrupt_kills_children_and_says_resume(tmp_path, fake, monkeypatch):
     assert handlers() == before
 
 
-def test_sigterm_kills_children_while_they_run(tmp_path, fake, monkeypatch):
+@pytest.mark.parametrize("sig", [signal.SIGTERM, signal.SIGHUP], ids=["SIGTERM", "SIGHUP"])
+def test_kill_signals_kill_children_while_they_run(tmp_path, fake, monkeypatch, sig):
     killed, killed_during_call = [], []
     monkeypatch.setattr("tattva.run.kill_children", lambda: killed.append(True))
 
     def call_that_gets_killed(call):
         if call.label == "design":
-            os.kill(os.getpid(), signal.SIGTERM)
+            os.kill(os.getpid(), sig)
             deadline = time.monotonic() + 2
             while not killed and time.monotonic() < deadline:
                 time.sleep(0.01)
@@ -77,6 +78,44 @@ def test_sigterm_kills_children_while_they_run(tmp_path, fake, monkeypatch):
         cmd_new(tmp_path, "Redis", "go", "claude", "", io.StringIO())
     assert killed_during_call == [True]
     assert handlers() == before
+
+
+def test_sighup_stays_ignored_under_nohup(tmp_path, fake, monkeypatch):
+    seen = []
+
+    def call(c):
+        seen.append(signal.getsignal(signal.SIGHUP))
+        return fake(c)
+    monkeypatch.setattr("tattva.providers.run_call", call)
+    old = signal.signal(signal.SIGHUP, signal.SIG_IGN)
+    try:
+        cmd_new(tmp_path, "Redis", "go", "claude", "", io.StringIO())
+        assert set(seen) == {signal.SIG_IGN} and signal.getsignal(signal.SIGHUP) == signal.SIG_IGN
+    finally:
+        signal.signal(signal.SIGHUP, old)
+
+
+def test_interrupt_outside_the_stream_says_resume(tmp_path, fake, monkeypatch):
+    killed = []
+    monkeypatch.setattr("tattva.run.kill_children", lambda: killed.append(True))
+
+    def interrupted(self):
+        raise KeyboardInterrupt
+    monkeypatch.setattr("tattva.run.Display.__enter__", interrupted)
+    with pytest.raises(TattvaError, match="interrupted; run the same `tattva new` again to resume"):
+        cmd_new(tmp_path, "Redis", "go", "claude", "", io.StringIO())
+    assert killed
+
+
+def test_resume_keeps_and_logs_the_saved_model(tmp_path, fake):
+    fake.fail = {"design": 2}
+    with pytest.raises(TattvaError):
+        cmd_new(tmp_path, "Redis", "go", "claude", "sonnet", io.StringIO())
+    fake.fail = {}
+    cmd_new(tmp_path, "Redis", "go", "claude", "opus", io.StringIO())
+    assert {c.model for c in fake.calls} == {"sonnet"}
+    log = "".join(f.read_text() for f in (tmp_path / "home/.tattva/logs").iterdir())
+    assert '--model sonnet in' in next(line for line in log.splitlines() if "(resuming)" in line)
 
 
 def test_refuses_finished_run_without_spec(tmp_path, fake):

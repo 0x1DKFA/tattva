@@ -25,6 +25,9 @@ error) printf '%s\n' '{"type":"result","is_error":true,"result":"There is an iss
 garbage) echo "not json"; echo "segfault in module" >&2; exit 2 ;;
 empty) printf '%s\n' '{"type":"result","is_error":false,"result":"I could not comply","total_cost_usd":0.1}' ;;
 hang) exec sleep 10 ;;
+slow) touch "$FAKE_DIR/live.$$"; ls "$FAKE_DIR" | grep -c '^live\.' >> "$FAKE_DIR/alive"; sleep 0.3
+  rm "$FAKE_DIR/live.$$"
+  printf '%s\n' '{"type":"result","is_error":false,"result":"","structured_output":{"answer":42},"total_cost_usd":0.1,"num_turns":1}' ;;
 hang-child) sleep 10 & wait ;;
 leftover) sleep 10 >/dev/null & echo $! > "$FAKE_DIR/leftover"
   printf '%s\n' '{"type":"result","is_error":false,"result":"","structured_output":{"answer":42},"total_cost_usd":0.1,"num_turns":1}' ;;

@@ -22,6 +22,8 @@ from .graph import MAX_CONCURRENCY, build_graph
 from .providers import CallFailed, CallTimedOut, Interrupted, check_provider, kill_children
 from .spec import RUN_DIR, SPEC_FILE
 
+INTERRUPTED = "interrupted; run the same `tattva new` again to resume"
+
 
 def cmd_new(cwd: Path, target: str, lang: str, provider: str, model: str, out: TextIO) -> None:
     check_provider(provider)
@@ -30,7 +32,9 @@ def cmd_new(cwd: Path, target: str, lang: str, provider: str, model: str, out: T
     (cwd / RUN_DIR).mkdir(parents=True, exist_ok=True)
     with closing(sqlite3.connect(cwd / RUN_DIR / "graph.sqlite", check_same_thread=False)) as conn:
         app = build_graph(SqliteSaver(conn))
-        cfg = {"configurable": {"thread_id": "new", "root": str(cwd)}, "max_concurrency": MAX_CONCURRENCY}
+        # ponytail: one pool slot goes to LangGraph's waiter for the custom stream, so MAX_CONCURRENCY nodes need
+        # one more; providers.MAX_CALLS is the real cap on calls. Drop the +1 if LangGraph stops doing that.
+        cfg = {"configurable": {"thread_id": "new", "root": str(cwd)}, "max_concurrency": MAX_CONCURRENCY + 1}
         snap = app.get_state(cfg)
         saved = snap.values
         if saved and (saved["target"], saved["lang"], saved["provider"]) != (target, lang, provider):
@@ -44,7 +48,7 @@ def cmd_new(cwd: Path, target: str, lang: str, provider: str, model: str, out: T
         print(app.get_graph().draw_ascii(), file=out)
         if saved:
             print("Resuming the unfinished run…", file=out)
-            start = None
+            start, model = None, saved["model"]  # the saved run's model is the one its calls use
         else:
             print("Starting…", file=out)
             start = {"target": target, "lang": lang, "provider": provider, "model": model,
@@ -58,6 +62,11 @@ def cmd_new(cwd: Path, target: str, lang: str, provider: str, model: str, out: T
                 stream(app, start, cfg, display)
             summary = display.summary(app.get_state(cfg).values)
             log.write(summary)
+        except KeyboardInterrupt:  # Ctrl-C, kill or hangup, or a second one while stopping
+            kill_children()  # the signal handler already did, unless the interrupt came from elsewhere
+            err = TattvaError(INTERRUPTED)
+            log.close(err)
+            raise err from None
         except BaseException as e:
             log.close(e)
             raise
@@ -67,20 +76,17 @@ def cmd_new(cwd: Path, target: str, lang: str, provider: str, model: str, out: T
 
 
 def stream(app, start: dict | None, cfg: dict, display: Display) -> None:
-    """Runs the graph (start=None resumes it) into the display. A stopped run says how to resume it."""
+    """Runs the graph (start=None resumes it) into the display. A failed run says how to resume it."""
     try:
         for mode, chunk in app.stream(start, cfg, stream_mode=["custom", "values"]):
             display.handle(mode, chunk)
-    except KeyboardInterrupt:
-        kill_children()  # the signal handler already did, unless the interrupt came from elsewhere
-        raise TattvaError("interrupted; run the same `tattva new` again to resume") from None
     except (CallFailed, CallTimedOut, Interrupted) as e:
         raise TattvaError(f"{e}\nThe run is saved; run the same `tattva new` again to resume.") from None
 
 
 @contextmanager
 def signals_stop_run():
-    """Ctrl-C or kill (SIGTERM) kills the running CLI children right away, then stops the run.
+    """Ctrl-C, kill (SIGTERM) or hangup kills the running CLI children right away, then stops the run.
     Killing in the handler matters: LangGraph waits for running and queued nodes before the
     KeyboardInterrupt reaches us, and they must end at once instead of starting new children."""
     def stop(signum, frame):
@@ -91,7 +97,10 @@ def signals_stop_run():
     # ponytail: kill_children can't miss a starting child only because nodes run on worker threads: it waits
     # for providers._lock, held across Popen and adding the child to the live set. A node run on the main
     # thread could take the signal between the two and leak its child; block signals there if that changes.
-    old = {s: signal.signal(s, stop) for s in (signal.SIGINT, signal.SIGTERM)}
+    sigs = [signal.SIGINT, signal.SIGTERM]
+    if signal.getsignal(signal.SIGHUP) != signal.SIG_IGN:  # under nohup it stays ignored
+        sigs.append(signal.SIGHUP)
+    old = {s: signal.signal(s, stop) for s in sigs}
     try:
         yield
     finally:

@@ -103,6 +103,44 @@ def test_calls_after_kill_children_never_start(fake_cli):
     assert not (rec / "args").exists()
 
 
+def test_at_most_four_calls_run_at_once(fake_cli):
+    rec = fake_cli("claude", "slow")  # each child records how many children are alive as it starts
+    results = []
+    threads = [threading.Thread(target=lambda: results.append(run_call(Call("x", "s", "p", {})))) for _ in range(6)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+    alive = [int(n) for n in (rec / "alive").read_text().split()]
+    assert len(results) == 6 and max(alive) <= providers.MAX_CALLS == 4
+
+
+def test_kill_children_interrupts_calls_waiting_for_a_slot(fake_cli):
+    fake_cli("claude", "hang")
+    interrupted = []
+
+    def call():
+        try:
+            run_call(Call("x", "s", "p", {}))
+        except Interrupted:
+            interrupted.append(True)
+    threads = [threading.Thread(target=call) for _ in range(6)]
+    for t in threads:
+        t.start()
+    try:
+        deadline = time.monotonic() + 5
+        while len(providers._live) < providers.MAX_CALLS and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.2)
+        assert len(providers._live) == providers.MAX_CALLS  # the other two wait for a slot
+    finally:
+        start = time.monotonic()
+        kill_children()
+    for t in threads:
+        t.join(5)
+    assert len(interrupted) == 6 and time.monotonic() - start < 2
+
+
 def test_events_show_searches(fake_cli):
     fake_cli("claude", "ok")
     evs = []
