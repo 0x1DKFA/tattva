@@ -21,7 +21,7 @@ Usage:
 
 class _Parser(argparse.ArgumentParser):
     def error(self, message):
-        raise TattvaError(message)
+        raise TattvaError(f"usage: {self.usage}" if self.usage else message)
 
 
 def run(cwd: Path, argv: list[str], out: TextIO) -> None:
@@ -34,6 +34,12 @@ def run(cwd: Path, argv: list[str], out: TextIO) -> None:
     for name in ("next", "status", "list"):
         commands.add_parser(name, add_help=False)
     commands.add_parser("done", add_help=False).add_argument("step", nargs="*")
+    new = commands.add_parser("new", add_help=False,
+                              usage='tattva new "<target>" --lang <lang> [--provider <p>] [--model <m>]')
+    new.add_argument("target")
+    new.add_argument("--lang", required=True)
+    new.add_argument("--provider", default="claude")
+    new.add_argument("--model", default="")
     if argv[0] in ("-h", "--help"):
         argv = ["help"]
     if argv[0] not in commands.choices:
@@ -41,6 +47,11 @@ def run(cwd: Path, argv: list[str], out: TextIO) -> None:
     args, extra = parser.parse_known_args(argv)
     if args.command == "help":
         out.write(USAGE)
+    elif args.command == "new":
+        if extra:
+            raise TattvaError(f"usage: {new.usage}")
+        from tattva.run import cmd_new  # here, so other commands don't pay for importing LangGraph
+        cmd_new(cwd, args.target, args.lang, args.provider, args.model, out)
     elif args.command == "done":
         if extra or len(args.step) > 1:
             raise TattvaError("usage: tattva done [step]")
