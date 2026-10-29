@@ -430,3 +430,6 @@ FodyWeavers.xsd
 
 # tattva binary
 /tattva
+
+# brainstorm mockups
+.superpowers/
