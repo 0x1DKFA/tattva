@@ -154,7 +154,7 @@ LangGraph's SQLite checkpointer saves the graph state after every node, in the p
 
 - `tattva new` in a folder with an unfinished run resumes it. If the target, language or provider differ from the saved run, it refuses and says so (it doesn't mix two runs).
 - Parallel calls that finished before a crash are not repeated on resume; only the unfinished ones run again.
-- A call that fails (call error, still-invalid output) doesn't stop its siblings. The run finishes all the work that doesn't depend on the failed item (the rest of a fan-out, as Go's `cmdExpand` does today), then stops before the first node that needs it, listing what failed and saying `tattva new` will retry it. Resume reruns only the failed items.
+- A call that fails (CLI error, still-invalid output) is retried once automatically (LangGraph `RetryPolicy`). If it fails again, the run stops the way LangGraph stops: calls already running finish and are saved, nothing new starts, and the message says `tattva new` will resume. Resume reruns only the failed calls and the ones that never started (checked in a spike against langgraph 1.2.18). Timeouts and Ctrl-C are not retried.
 - Ctrl-C or SIGTERM stops the run and kills the running CLI subprocesses, so nothing keeps spending. A second Ctrl-C exits at once.
 - On macOS the run holds an idle-sleep assertion (`caffeinate -i -w <pid>`), so an idle Mac doesn't sleep mid-run. Resume covers lid-close and crashes.
 
@@ -218,8 +218,8 @@ The step markdown shows each checkpoint with its judge estimate and marks flagge
 - Expand runs one call per step (as shown in the approved diagram), not one per phase as today. This costs more calls; cost is visible in the panel.
 - A step's checkpoints all come from one feature; a flagged checkpoint is a step on its own.
 - `schema_version` is 2; regexes in checks use Python `re` syntax.
-- 4 concurrent model calls; one repair call per node; no automatic retries beyond that (resume covers failures).
+- 4 concurrent model calls; one repair call per node.
 - Run state lives in `curriculum/.run/` and is kept after the run finishes.
 - The judge assumes every earlier checkpoint is built, and returns minutes rather than a yes/no; `fits` is `minutes <= 20`.
-- A failed call lets independent work finish before the run stops; resume retries only what failed.
+- A failed call is retried once; if it fails again the run stops (running calls finish and are saved) and resume reruns only what failed or never started.
 - A split that fails the coverage check is redone once (not counted toward the 3); if the redo fails too, the parent stays unsplit and flagged.
