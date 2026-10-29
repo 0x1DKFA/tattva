@@ -82,4 +82,4 @@ def test_results_are_streamed_and_costs_add_up(tmp_path, fake):
     assert '"BIG parse" not covered: the error reply is in no child' in said
     assert '"BIG parse" covered' in said
     assert "Learner:" not in fake.prompt("coverage 1.1")
-    assert chunks[-1][1]["cost"] == pytest.approx(0.01 * len(fake.labels))
+    assert [c for mode, c in chunks if mode == "values"][-1]["cost"] == pytest.approx(0.01 * len(fake.labels))

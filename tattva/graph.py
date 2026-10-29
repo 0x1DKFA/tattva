@@ -249,6 +249,7 @@ def write(state: State, config: RunnableConfig) -> dict:
     project.save_spec()
     project.render()
     project.write(RESEARCH_FILE, state["brief"].encode())
+    say("write", f"wrote {len(state['steps'])} step files")
     return {}
 
 
