@@ -78,10 +78,14 @@ def _kill(proc: subprocess.Popen, why: str) -> None:
     with _lock:
         if proc in _live and proc.returncode is None:
             _live[proc] = _live[proc] or why
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)  # the whole group, so the CLI's own children die too
-            except OSError:
-                pass  # already gone
+            _killpg(proc.pid)
+
+
+def _killpg(pgid: int) -> None:
+    try:
+        os.killpg(pgid, signal.SIGKILL)  # the whole group, so the CLI's own children die too
+    except OSError:
+        pass  # already gone
 
 
 def clip(s: str, n: int) -> str:
@@ -121,39 +125,38 @@ def _run(cmd: list[str], cwd: str, prompt: str, on_line: Callable[[str], None],
          log: Callable[[str], None], stderr_label: str) -> tuple[int, str]:
     """Runs cmd in cwd with prompt on stdin, passing each stdout line to on_line.
     Returns the exit code and stderr; raises CallTimedOut or Interrupted when it was killed."""
-    with _lock:  # so kill_children can't miss a child that is starting
-        if _stopped:
-            raise Interrupted("interrupted")
-        try:
-            proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                    stderr=subprocess.PIPE, encoding="utf-8", errors="replace",
-                                    start_new_session=True)
-        except FileNotFoundError:
-            raise CallFailed(NOT_ON_PATH[cmd[0]]) from None
-        _live[proc] = ""
-    timer = threading.Timer(CALL_TIMEOUT, _kill, (proc, "timeout"))
-    stderr = []
-    reader = threading.Thread(target=lambda: stderr.append(proc.stderr.read()))
-    with proc:
-        timer.start()
-        reader.start()
-        try:
+    # stderr goes to a file, not a pipe: a leftover child of the CLI holding a pipe open would block us
+    with tempfile.TemporaryFile() as errf:
+        with _lock:  # so kill_children can't miss a child that is starting
+            if _stopped:
+                raise Interrupted("interrupted")
             try:
-                with proc.stdin as w:
-                    w.write(prompt)
-            except BrokenPipeError:
-                pass  # it exited without reading it all; its exit status and stderr say why
-            for line in proc.stdout:
-                on_line(line.rstrip("\n"))
-            proc.wait()
-        finally:
-            timer.cancel()
-            _kill(proc, "")  # only does anything when an error left it running
-            proc.wait()
-            reader.join()
-            with _lock:
-                why = _live.pop(proc)
-    err = "".join(stderr)
+                proc = subprocess.Popen(cmd, cwd=cwd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=errf,
+                                        encoding="utf-8", errors="replace", start_new_session=True)
+            except FileNotFoundError:
+                raise CallFailed(NOT_ON_PATH[cmd[0]]) from None
+            _live[proc] = ""
+        timer = threading.Timer(CALL_TIMEOUT, _kill, (proc, "timeout"))
+        with proc:
+            timer.start()
+            try:
+                try:
+                    with proc.stdin as w:
+                        w.write(prompt)
+                except BrokenPipeError:
+                    pass  # it exited without reading it all; its exit status and stderr say why
+                for line in proc.stdout:  # a leftover holding stdout keeps the CLI unreaped, so still killable
+                    on_line(line.rstrip("\n"))
+                proc.wait()
+            finally:
+                timer.cancel()
+                _kill(proc, "")  # only does anything when an error left it running
+                proc.wait()
+                with _lock:
+                    why = _live.pop(proc)
+                    _killpg(proc.pid)  # leftovers the CLI started; its group outlives it while they run
+        errf.seek(0)
+        err = errf.read().decode("utf-8", "replace")
     for line in err.strip().splitlines():
         log(f"{stderr_label}: {line}")
     if why == "timeout":

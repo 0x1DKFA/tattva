@@ -23,6 +23,8 @@ garbage) echo "not json"; echo "segfault in module" >&2; exit 2 ;;
 empty) printf '%s\n' '{"type":"result","is_error":false,"result":"I could not comply","total_cost_usd":0.1}' ;;
 hang) exec sleep 10 ;;
 hang-child) sleep 10 & wait ;;
+leftover) sleep 10 >/dev/null & echo $! > "$FAKE_DIR/leftover"
+  printf '%s\n' '{"type":"result","is_error":false,"result":"","structured_output":{"answer":42},"total_cost_usd":0.1,"num_turns":1}' ;;
 esac
 """,
     "codex": r"""#!/bin/sh
@@ -51,6 +53,11 @@ printf '%s\n' '{"type":"turn.started"}' '{"type":"item.completed","item":{"type"
 @pytest.fixture(autouse=True)
 def home(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+
+@pytest.fixture(autouse=True)
+def providers_not_stopped(monkeypatch):
+    monkeypatch.setattr("tattva.providers._stopped", False)  # undoes any kill_children() after the test
 
 
 @pytest.fixture

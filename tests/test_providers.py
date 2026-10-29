@@ -1,3 +1,4 @@
+import os
 import threading
 import time
 from pathlib import Path
@@ -58,6 +59,22 @@ def test_claude_timeout_kills_the_process_group(fake_cli, monkeypatch):
     assert not issubclass(CallTimedOut, CallFailed) and not issubclass(Interrupted, CallFailed)
 
 
+def test_leftover_child_holding_stderr_neither_hangs_nor_survives(fake_cli):
+    rec = fake_cli("claude", "leftover")  # exits at once, leaving a sleep that holds its stderr
+    start = time.monotonic()
+    assert run_call(Call("x", "s", "p", {})).output == {"answer": 42}
+    assert time.monotonic() - start < 5
+    pid = int((rec / "leftover").read_text())
+    for _ in range(100):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.02)
+    else:
+        pytest.fail("the CLI's leftover child is still running")
+
+
 @pytest.mark.parametrize("provider, want", [
     ("claude", "the claude CLI isn't on your PATH; install Claude Code and log in first"),
     ("codex", "the codex CLI isn't on your PATH; install Codex and sign in first"),
@@ -70,8 +87,7 @@ def test_missing_cli(tmp_path, monkeypatch, provider, want):
     assert evs[-1] == {"type": "call_end", "label": "x", "cost": None, "error": want}
 
 
-def test_kill_children_interrupts_running_call(fake_cli, monkeypatch):
-    monkeypatch.setattr(providers, "_stopped", False)  # restored afterwards, so later tests can call
+def test_kill_children_interrupts_running_call(fake_cli):
     fake_cli("claude", "hang")
     err = []
     t = threading.Thread(target=lambda: err.append(pytest.raises(Interrupted, run_call, Call("x", "s", "p", {}))))
@@ -79,8 +95,7 @@ def test_kill_children_interrupts_running_call(fake_cli, monkeypatch):
     assert not t.is_alive() and err
 
 
-def test_calls_after_kill_children_never_start(fake_cli, monkeypatch):
-    monkeypatch.setattr(providers, "_stopped", False)
+def test_calls_after_kill_children_never_start(fake_cli):
     rec = fake_cli("claude", "ok")
     kill_children()
     with pytest.raises(Interrupted):
