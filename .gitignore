@@ -428,8 +428,10 @@ FodyWeavers.xsd
 *.msm
 *.msp
 
-# tattva binary
-/tattva
+# python
+.venv/
+*.egg-info/
+.pytest_cache/
 
 # brainstorm mockups
 .superpowers/
