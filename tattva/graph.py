@@ -228,11 +228,12 @@ def expand(p: dict, config: RunnableConfig) -> dict:
     """One step's detail: why, task, hints, checks…"""
     step = p["step"]
     listing = "\n\n".join(
-        f"{s['id']}: {s['title']}\n  goal: {s['goal']}\n  checkpoints:\n"
+        f"{s['id']}: {s['title']}\n  feature: {s['checkpoints'][0]['feature']}\n  goal: {s['goal']}\n  checkpoints:\n"
         + "\n".join(f"  - {c['text']}" + (" (by hand)" if c["by_hand"] else "") for c in s["checkpoints"])
         for s in p["steps"])
     references = [f"{r['title']} — {r['url']}" for r in p["references"]]
-    prompt = request(*context(p), ("References", references), ("Steps", listing), ("Step to write", step["id"]))
+    prompt = request(*context(p), ("References", references), ("Steps", listing), ("Step to write", step["id"]),
+                     ("Feature", feature_json(p, step["checkpoints"][0])))
     rules = detail_rules(p["outline"]["program"]["kind"])
     out, update = ask(p, config, f"expand {step['id']}", step["title"], prompt, Detail, rules, web=True)
     say("expand", f"{quoted(step['title'])} written, {len(out['checks'])} checks")

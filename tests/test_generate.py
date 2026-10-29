@@ -57,6 +57,7 @@ def test_still_invalid_saves_and_raises(monkeypatch, tmp_path):
     text = err.saved.read_text()
     assert json.loads(text) == {"errors": ["x is forbidden"], "output": {"x": 2}} and text.endswith("}\n")
     assert f"The output is saved in {err.saved}" in str(err)
+    assert (tmp_path / "failed/.gitignore").read_text() == "*\n"
 
 
 def test_no_failed_dir_saves_nothing(monkeypatch):

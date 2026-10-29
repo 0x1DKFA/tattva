@@ -30,7 +30,7 @@ mkdir mini-redis && cd mini-redis
 tattva new "Redis" --lang go --provider codex     # Claude is the default provider
 ```
 
-`tattva new` runs unattended and takes a few minutes. It prints the graph first, then shows a live progress panel. The steps are:
+`tattva new` runs unattended and can take an hour or more (about 100 judge calls, 4 at a time, plus one write-up call per step), and resumes where it stopped if interrupted. It prints the graph first, then shows a live progress panel. The steps are:
 
 1. Research the target.
 2. Design the curriculum.

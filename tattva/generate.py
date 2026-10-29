@@ -31,6 +31,8 @@ def add_cost(a: float | None, b: float | None) -> float | None:
 
 
 def _save_failed(failed_dir: Path, label: str, output: dict, errors: list[str]) -> Path:
+    if not (failed_dir / ".gitignore").exists():  # the README says to commit curriculum/, not this
+        write_file_atomic(failed_dir / ".gitignore", b"*\n")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     path = failed_dir / f"{label.replace(' ', '-')}-{stamp}.json"
     write_file_atomic(path, (json.dumps({"errors": errors, "output": output}, indent=2) + "\n").encode())

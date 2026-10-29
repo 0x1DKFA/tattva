@@ -69,7 +69,7 @@ def test_requests_carry_the_sections_the_prompts_name(tmp_path, fake):
     assert "c1 [f1] ~10 min feature f1 checkpoint 1" in fake.prompt("steps")
     expand = fake.prompt("expand step-2")
     assert "References:\nRESP spec — https://redis.io/" in expand
-    assert expand.endswith("Step to write: step-2")
+    assert "Step to write: step-2" in expand and "Feature:\n{" in expand
 
 
 def test_results_are_streamed_and_costs_add_up(tmp_path, fake):
@@ -83,3 +83,10 @@ def test_results_are_streamed_and_costs_add_up(tmp_path, fake):
     assert '"BIG parse" covered' in said
     assert "Learner:" not in fake.prompt("coverage 1.1")
     assert [c for mode, c in chunks if mode == "values"][-1]["cost"] == pytest.approx(0.01 * len(fake.labels))
+
+
+def test_expand_prompt_names_the_steps_feature(tmp_path, fake):
+    run_graph(tmp_path)
+    prompt = fake.prompt("expand " + fake.step_id(1))
+    assert "  feature: f1\n" in prompt
+    assert "Feature:\n{" in prompt and '"description"' in prompt

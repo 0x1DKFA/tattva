@@ -27,16 +27,22 @@ INTERRUPTED = "interrupted; run the same `tattva new` again to resume"
 
 def cmd_new(cwd: Path, target: str, lang: str, provider: str, model: str, out: TextIO) -> None:
     check_provider(provider)
-    if (cwd / SPEC_FILE).exists():
+    exists = (cwd / SPEC_FILE).exists()
+    if exists and not (cwd / RUN_DIR / "graph.sqlite").exists():
         raise TattvaError(f"{SPEC_FILE} already exists here")
     (cwd / RUN_DIR).mkdir(parents=True, exist_ok=True)
+    if not (cwd / RUN_DIR / ".gitignore").exists():  # the README says to commit curriculum/, not run state
+        (cwd / RUN_DIR / ".gitignore").write_text("*\n")
     with closing(sqlite3.connect(cwd / RUN_DIR / "graph.sqlite", check_same_thread=False)) as conn:
         app = build_graph(SqliteSaver(conn))
         # ponytail: one pool slot goes to LangGraph's waiter for the custom stream, so MAX_CONCURRENCY nodes need
         # one more; providers.MAX_CALLS is the real cap on calls. Drop the +1 if LangGraph stops doing that.
-        cfg = {"configurable": {"thread_id": "new", "root": str(cwd)}, "max_concurrency": MAX_CONCURRENCY + 1}
+        cfg = {"configurable": {"thread_id": "new", "root": str(cwd)}, "max_concurrency": MAX_CONCURRENCY + 1,
+               "recursion_limit": 1000}  # the deepest judge/split/coverage loop needs ~40 supersteps; don't lean on the default
         snap = app.get_state(cfg)
         saved = snap.values
+        if exists and not snap.next:  # spec.json plus an unfinished run (write died midway) resumes; write redoes it all
+            raise TattvaError(f"{SPEC_FILE} already exists here")
         if saved and (saved["target"], saved["lang"], saved["provider"]) != (target, lang, provider):
             raise TattvaError(f'this folder has an unfinished run of tattva new "{saved["target"]}" '
                               f'--lang {saved["lang"]} --provider {saved["provider"]}; run that to resume it, '
@@ -82,6 +88,8 @@ def stream(app, start: dict | None, cfg: dict, display: Display) -> None:
             display.handle(mode, chunk)
     except (CallFailed, CallTimedOut, Interrupted) as e:
         raise TattvaError(f"{e}\nThe run is saved; run the same `tattva new` again to resume.") from None
+    except Exception as e:  # OSError in write, a bug, sqlite: the checkpoint is intact, so resume works
+        raise TattvaError(f"{type(e).__name__}: {e}\nThe run is saved; run the same `tattva new` again to resume.") from e
 
 
 @contextmanager
@@ -94,7 +102,8 @@ def signals_stop_run():
         signal.signal(signal.SIGINT, signal.SIG_DFL)  # a second Ctrl-C exits at once
         raise KeyboardInterrupt
 
-    # ponytail: kill_children can't miss a starting child only because nodes run on worker threads: it waits
+    # ponytail: kill_children can't miss a starting child only because nodes run on worker threads (the "custom"
+    # stream mode disables LangGraph's inline single-task fast path, so even a lone node gets one): it waits
     # for providers._lock, held across Popen and adding the child to the live set. A node run on the main
     # thread could take the signal between the two and leak its child; block signals there if that changes.
     sigs = [signal.SIGINT, signal.SIGTERM]

@@ -109,7 +109,7 @@ class Display:
         if line is None:
             return
         if self._live:
-            self._live.console.print(line, markup=False, highlight=False, soft_wrap=True)
+            self._live.console.print(line, markup=False, highlight=False, soft_wrap=True, emoji=False)
         else:
             print(line, file=self.out)
 
@@ -139,6 +139,8 @@ class Display:
                 return f"{mmss(now - self.start)} {stage_of(e['label']):<9} {e['text']}"
         elif kind == "call_end":
             self.calls.pop(e["label"], None)
+            if e["error"]:
+                return f"{mmss(now - self.start)} {stage_of(e['label']):<9} {e['label']} failed: {clip(e['error'], 120)}"
             if e["cost"] is None:
                 self.cost_known = False
             else:

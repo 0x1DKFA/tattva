@@ -92,3 +92,19 @@ def test_heartbeat_thread_stops():
     with Display(io.StringIO(), RunLog("new", io.StringIO()), "redis", "claude", live=False):
         assert threading.active_count() == before + 1
     assert threading.active_count() == before
+
+
+def test_failed_call_prints_a_line_and_keeps_cost_known():
+    out = io.StringIO()
+    d = Display(out, RunLog("new", io.StringIO()), "redis", "claude", live=False)
+    d.handle("custom", {"type": "call_end", "label": "design", "cost": None, "error": "boom"})
+    assert "design failed: boom" in out.getvalue()
+    assert d.cost_known
+
+
+def test_live_log_lines_keep_colon_names():
+    out = io.StringIO()
+    d = Display(out, RunLog("new", io.StringIO()), "redis", "claude", live=True)
+    with d:
+        d.handle("custom", {"type": "result", "stage": "design", "text": "redis user:id:name"})
+    assert "user:id:name" in out.getvalue()

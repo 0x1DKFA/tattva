@@ -135,3 +135,28 @@ def test_cli_new_checks_provider(tmp_path):
 def test_cli_new_usage(tmp_path, argv):
     with pytest.raises(TattvaError, match=r'^usage: tattva new "<target>" --lang <lang> \[--provider <p>\]'):
         run(tmp_path, argv, io.StringIO())
+
+
+def test_run_state_is_gitignored(tmp_path, fake):
+    cmd_new(tmp_path, "Redis", "go", "claude", "", io.StringIO())
+    assert (tmp_path / "curriculum/.run/.gitignore").read_text() == "*\n"
+
+
+def test_other_errors_say_resume(tmp_path, fake):
+    fake.raise_on = {"expand " + fake.step_id(1): OSError}
+    with pytest.raises(TattvaError, match="OSError.*\nThe run is saved; run the same `tattva new` again to resume"):
+        cmd_new(tmp_path, "Redis", "go", "claude", "", io.StringIO())
+
+
+def test_resumes_when_spec_exists_but_run_unfinished(tmp_path, fake, monkeypatch):
+    def boom(self):
+        raise OSError("disk full")
+    monkeypatch.setattr("tattva.project.Project.render", boom)
+    with pytest.raises(TattvaError, match="again to resume"):
+        cmd_new(tmp_path, "Redis", "go", "claude", "", io.StringIO())
+    assert (tmp_path / "curriculum/spec.json").exists()
+    monkeypatch.undo()
+    out = io.StringIO()
+    cmd_new(tmp_path, "Redis", "go", "claude", "", out)
+    assert "Resuming the unfinished run…" in out.getvalue()
+    assert (tmp_path / "curriculum/README.md").exists()
