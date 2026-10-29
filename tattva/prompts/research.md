@@ -10,7 +10,7 @@ Use WebSearch and WebFetch. Prefer primary sources: official documentation, spec
 
 # The brief
 
-`brief` is markdown. Start it with the target exactly as you received it, notes included, so later agents see what was asked for. Then cover, each under its own heading:
+`brief` is markdown. Cover, each under its own heading:
 
 - **Architecture**: how the real system is built: its main components, how a request or command flows through them, and the data structures at its core.
 - **Wire protocol or file formats**: the exact bytes: framing, delimiters, length prefixes, encodings, byte order, headers and field order, with byte-level examples of real messages or files. Write control bytes as escapes (`\r\n`, `\x00`).

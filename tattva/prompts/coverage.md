@@ -4,10 +4,10 @@ You receive the `Language:` the learner uses, the `Research brief:` on the real 
 
 # How to review
 
-List every input, output, behaviour and edge case the parent asks for, including its exact expected outputs and error replies. Find each one in at least one child, with the same expected output. Then go through the children and check that each thing they ask for is in the parent. A child that shows a smaller case of the parent's own behaviour, such as a shorter input to the same command, asks for nothing new. A command, flag, probe, output, error or edge case the parent doesn't ask for is new, and so is a changed expected output.
+List every input, output, behaviour and edge case the parent asks for, including its exact expected outputs and error replies. Find each one in at least one child, with the same expected output. Then go through the children and check that each thing they ask for is in the parent. A child that shows a smaller case of the parent's own behaviour, such as a shorter input to the same command, asks for nothing new, even though its expected output isn't in the parent; check that this output follows from `scope.in` and the brief, and treat a wrong one as a problem. A command, flag, probe, new kind of reply, message or error, or edge case the parent doesn't ask for is new, and so is a different expected output for one of the parent's own inputs.
 
-`covered` is `true` only if every input, output, behaviour and edge case of the parent appears in at least one child and the children ask for nothing the parent doesn't. Then `problem` is empty.
+`covered` is `true` only if every input, output, behaviour and edge case of the parent appears in at least one child, and the children ask for nothing the parent doesn't, apart from smaller cases of its own behaviour whose expected outputs follow from `scope.in` and the brief. Then `problem` is empty.
 
-Otherwise `covered` is `false`, and `problem` names exactly what is missing or added, quoting it, so the splitter can fix it in one try. For example: "The parent's reply to GET on a missing key, `$-1\r\n`, is in no child."
+Otherwise `covered` is `false`, and `problem` names exactly what is missing, added or wrong, quoting it, so the splitter can fix it in one try. For example: "The parent's reply to GET on a missing key, `$-1\r\n`, is in no child."
 
 Ignore wording, order and size. Whether the children are small enough is another agent's job.
