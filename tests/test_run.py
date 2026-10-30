@@ -151,11 +151,11 @@ def test_other_errors_say_resume(tmp_path, fake):
 def test_resumes_when_spec_exists_but_run_unfinished(tmp_path, fake, monkeypatch):
     def boom(self):
         raise OSError("disk full")
-    monkeypatch.setattr("tattva.project.Project.render", boom)
-    with pytest.raises(TattvaError, match="again to resume"):
-        cmd_new(tmp_path, "Redis", "go", "claude", "", io.StringIO())
+    with monkeypatch.context() as m:  # undo only this patch; monkeypatch.undo() would also restore the real HOME
+        m.setattr("tattva.project.Project.render", boom)
+        with pytest.raises(TattvaError, match="again to resume"):
+            cmd_new(tmp_path, "Redis", "go", "claude", "", io.StringIO())
     assert (tmp_path / "curriculum/spec.json").exists()
-    monkeypatch.undo()
     out = io.StringIO()
     cmd_new(tmp_path, "Redis", "go", "claude", "", out)
     assert "Resuming the unfinished run…" in out.getvalue()
