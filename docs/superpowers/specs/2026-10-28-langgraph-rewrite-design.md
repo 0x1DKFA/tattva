@@ -3,7 +3,7 @@
 **Date:** 2026-10-28
 **Status:** Approved in conversation; written up for planning
 **Replaces:** the Go implementation at commit `a1f5df5`, which is the behaviour reference for everything this document says is "unchanged".
-**Earlier designs:** [curriculum engine](2026-09-24-curriculum-engine-design.md), [workspace](2026-09-27-workspace-design.md).
+**Earlier designs:** the Go-era curriculum engine and workspace designs were removed after the rewrite; they are in git history at `a1f5df5`.
 
 ## Why
 
